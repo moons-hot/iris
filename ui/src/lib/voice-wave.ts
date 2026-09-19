@@ -22,6 +22,15 @@ export function levelsFromFrequencyData(
   });
 }
 
+export function mergeLiveTranscript(previous: string, incoming: string) {
+  const next = incoming.trim();
+  if (!next) return previous;
+  if (!previous) return next;
+  if (next.startsWith(previous) || next.includes(previous)) return next;
+  if (previous.includes(next)) return previous;
+  return `${previous} ${next}`.replace(/\s+/g, " ").trim();
+}
+
 export function idleVoiceLevels(
   tick: number,
   barCount = VOICE_WAVE_BARS,

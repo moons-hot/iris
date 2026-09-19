@@ -26,9 +26,11 @@ import {
 import { VoiceWaveInput } from "@/components/station/voice-wave-input";
 import {
   captureSerialAudio,
+  createPcmTap,
   openEsp32Serial,
   type BrowserSerialPort,
 } from "@/lib/astronaut-mic";
+import { mergeLiveTranscript } from "@/lib/voice-wave";
 import { pickAudioInput, type VoiceInputKind } from "@/lib/usb-voice";
 
 type Metric = {
@@ -55,6 +57,10 @@ type Finding = {
   speak: string;
   possibleConcerns?: string[];
   recommendedActions?: string[];
+  source?: "grok" | "onboard-demo";
+  voiceEngine?: "grok-voice" | "onboard-demo" | "supplied";
+  heard?: string;
+  ttsEngine?: "grok-voice" | "browser";
 };
 
 function MetricList({ metrics }: { metrics: Metric[] }) {
@@ -93,10 +99,16 @@ export default function StationPage() {
   const [recording, setRecording] = useState(false);
   const [voiceSource, setVoiceSource] = useState<VoiceInputKind | null>(null);
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
+  const [grokReady, setGrokReady] = useState(false);
+  const [grokLive, setGrokLive] = useState(false);
+  const [grokText, setGrokText] = useState("");
+  const [transcribing, setTranscribing] = useState(false);
   const recorder = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
   const serialAbort = useRef<AbortController | null>(null);
   const serialPort = useRef<BrowserSerialPort | null>(null);
+  const stopLiveTap = useRef<(() => void) | null>(null);
+  const liveInFlight = useRef(false);
 
   const refresh = useCallback(async () => {
     const response = await fetch("/api/monitoring/tick");
@@ -109,7 +121,16 @@ export default function StationPage() {
     return () => window.clearInterval(interval);
   }, [refresh]);
 
-  async function speak(text: string) {
+  useEffect(() => {
+    void fetch("/api/voice")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((status: { grokVoice?: boolean } | null) => {
+        setGrokReady(Boolean(status?.grokVoice));
+      })
+      .catch(() => setGrokReady(false));
+  }, []);
+
+  async function speak(text: string): Promise<"grok-voice" | "browser"> {
     const response = await fetch("/api/voice/speak", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -119,8 +140,39 @@ export default function StationPage() {
     if (response.ok && type.startsWith("audio/")) {
       const url = URL.createObjectURL(await response.blob());
       new Audio(url).play().catch(() => undefined);
-    } else if ("speechSynthesis" in window) {
+      return "grok-voice";
+    }
+    if ("speechSynthesis" in window) {
       window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+    }
+    return "browser";
+  }
+
+  async function sendLiveChunk(file: File) {
+    if (liveInFlight.current) return;
+    liveInFlight.current = true;
+    try {
+      const form = new FormData();
+      form.set("audio", file);
+      const response = await fetch("/api/voice/live", {
+        method: "POST",
+        body: form,
+      });
+      const result = (await response.json()) as {
+        transcript?: string;
+        source?: string;
+        live?: boolean;
+      };
+      if (result.source === "grok-voice" && result.transcript?.trim()) {
+        setGrokLive(true);
+        setGrokText((current) =>
+          mergeLiveTranscript(current, result.transcript ?? ""),
+        );
+      }
+    } catch {
+      setGrokLive(false);
+    } finally {
+      liveInFlight.current = false;
     }
   }
 
@@ -144,9 +196,9 @@ export default function StationPage() {
         }),
       });
       const result = (await response.json()) as Finding;
-      setFinding(result);
+      const ttsEngine = await speak(result.speak);
+      setFinding({ ...result, ttsEngine });
       setMessage("");
-      await speak(result.speak);
       await refresh();
     } finally {
       setLoading(false);
@@ -165,6 +217,7 @@ export default function StationPage() {
 
   async function submitVoiceCapture(audio?: File, transcript?: string) {
     setLoading(true);
+    setTranscribing(true);
     const form = new FormData();
     if (audio) form.set("audio", audio);
     if (transcript) form.set("transcript", transcript);
@@ -181,17 +234,31 @@ export default function StationPage() {
     const result = (await voiceResponse.json()) as {
       transcript?: string;
       voiceAssessment?: string;
+      source?: "grok-voice" | "onboard-demo" | "supplied";
     };
+    const heard =
+      result.transcript?.trim() ||
+      transcript?.trim() ||
+      grokText.trim() ||
+      "Voice report captured after scenario start.";
+    if (result.source === "grok-voice") {
+      setGrokLive(true);
+      setGrokText(heard);
+    }
     const live = tickResponse.ok
       ? ((await tickResponse.json()) as Snapshot)
       : snapshot;
     if (live) setSnapshot(live);
-    await investigate(
-      result.transcript?.trim() ||
-        transcript?.trim() ||
-        "Voice report captured after scenario start.",
-      result.voiceAssessment,
-      live,
+    setTranscribing(false);
+    await investigate(heard, result.voiceAssessment, live);
+    setFinding((current) =>
+      current
+        ? {
+            ...current,
+            voiceEngine: result.source,
+            heard,
+          }
+        : current,
     );
   }
 
@@ -200,6 +267,8 @@ export default function StationPage() {
     chunks.current = [];
     media.ondataavailable = (event) => chunks.current.push(event.data);
     media.onstop = async () => {
+      stopLiveTap.current?.();
+      stopLiveTap.current = null;
       setRecording(false);
       setAudioStream(null);
       stream.getTracks().forEach((track) => track.stop());
@@ -213,6 +282,12 @@ export default function StationPage() {
     recorder.current = media;
     setVoiceSource(kind);
     setAudioStream(stream);
+    setGrokText("");
+    setGrokLive(false);
+    stopLiveTap.current?.();
+    stopLiveTap.current = createPcmTap(stream, (file) => {
+      void sendLiveChunk(file);
+    });
     media.start();
     setRecording(true);
   }
@@ -222,6 +297,8 @@ export default function StationPage() {
     serialPort.current = port;
     const abort = new AbortController();
     serialAbort.current = abort;
+    stopLiveTap.current?.();
+    stopLiveTap.current = null;
     setVoiceSource("esp32");
     setRecording(true);
     try {
@@ -308,14 +385,39 @@ export default function StationPage() {
               </p>
             </div>
           </div>
-          <Badge
-            variant={snapshot.scenario === "dire" ? "destructive" : "secondary"}
-          >
-            <Radio data-icon="inline-start" />{" "}
-            {snapshot.scenario === "dire"
-              ? "elevated monitoring"
-              : "monitoring nominal"}
-          </Badge>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge
+              variant={grokReady ? "secondary" : "outline"}
+              className={
+                grokLive || recording
+                  ? "border-emerald-400/50 text-emerald-400"
+                  : undefined
+              }
+            >
+              <span
+                className={`mr-1 inline-block size-1.5 rounded-full ${
+                  grokLive
+                    ? "animate-pulse bg-emerald-400"
+                    : grokReady
+                      ? "bg-emerald-500/70"
+                      : "bg-muted-foreground/50"
+                }`}
+              />
+              {grokLive
+                ? "Grok Voice live"
+                : grokReady
+                  ? "Grok Voice ready"
+                  : "Grok Voice offline"}
+            </Badge>
+            <Badge
+              variant={snapshot.scenario === "dire" ? "destructive" : "secondary"}
+            >
+              <Radio data-icon="inline-start" />{" "}
+              {snapshot.scenario === "dire"
+                ? "elevated monitoring"
+                : "monitoring nominal"}
+            </Badge>
+          </div>
         </header>
 
         <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)_280px]">
@@ -347,18 +449,31 @@ export default function StationPage() {
               <CardContent className="flex flex-col gap-4">
                 {finding ? (
                   <article className="flex flex-col gap-3 rounded-lg bg-muted p-4">
-                    <div className="flex items-center justify-between">
-                      <Badge
-                        variant={
-                          finding.severity === "high"
-                            ? "destructive"
-                            : "secondary"
-                        }
-                      >
-                        {finding.severity === "high"
-                          ? "high-priority"
-                          : "monitoring"}
-                      </Badge>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge
+                          variant={
+                            finding.severity === "high"
+                              ? "destructive"
+                              : "secondary"
+                          }
+                        >
+                          {finding.severity === "high"
+                            ? "high-priority"
+                            : "monitoring"}
+                        </Badge>
+                        {finding.voiceEngine === "grok-voice" ? (
+                          <Badge className="border-emerald-400/40 text-emerald-400">
+                            Heard by Grok Voice
+                          </Badge>
+                        ) : null}
+                        {finding.ttsEngine === "grok-voice" ? (
+                          <Badge variant="outline">Spoken by Grok Voice</Badge>
+                        ) : null}
+                        {finding.source === "grok" ? (
+                          <Badge variant="outline">Iris via Grok</Badge>
+                        ) : null}
+                      </div>
                       <Button
                         variant="ghost"
                         size="icon-sm"
@@ -368,6 +483,14 @@ export default function StationPage() {
                         <Volume2 />
                       </Button>
                     </div>
+                    {finding.heard && finding.voiceEngine === "grok-voice" ? (
+                      <p className="rounded-md border border-emerald-400/20 bg-emerald-400/5 px-3 py-2 text-xs leading-5">
+                        <span className="font-semibold text-emerald-400">
+                          Grok Voice heard:{" "}
+                        </span>
+                        {finding.heard}
+                      </p>
+                    ) : null}
                     {finding.possibleConcerns?.length ? (
                       <div className="space-y-3 text-sm leading-6">
                         <section>
@@ -425,6 +548,10 @@ export default function StationPage() {
                     onSubmit={() => void investigate()}
                     recording={recording}
                     stream={audioStream}
+                    grokReady={grokReady}
+                    grokLive={grokLive}
+                    grokText={grokText}
+                    transcribing={transcribing}
                     placeholder="Type a symptom report or question…"
                   />
                   <Button onClick={() => void investigate()} disabled={loading}>
@@ -449,9 +576,15 @@ export default function StationPage() {
                     <Mic />
                   </Button>
                 </div>
-                {voiceSource ? (
+                {voiceSource || grokReady ? (
                   <p className="text-xs text-muted-foreground">
-                    {recording ? "Recording via " : "Voice input: "}
+                    {recording
+                      ? grokLive
+                        ? "Grok Voice is hearing this live via "
+                        : "Capturing audio for Grok Voice via "
+                      : grokReady
+                        ? "Grok Voice will transcribe speech from "
+                        : "Voice input: "}
                     {voiceSource === "esp32"
                       ? "ESP32 USB"
                       : "MacBook microphone"}

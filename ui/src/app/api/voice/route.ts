@@ -1,4 +1,11 @@
+import {
+  grokVoiceConfigured,
+  GROK_VOICE_MODEL,
+  transcribeWithGrokVoice,
+} from "@/lib/grok-voice";
+
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 function assessVoice(transcript: string) {
   const normalized = transcript.toLowerCase();
@@ -20,6 +27,13 @@ function assessVoice(transcript: string) {
     : "no reliable prosody inference available from transcript alone";
 }
 
+export async function GET() {
+  return Response.json({
+    grokVoice: grokVoiceConfigured(),
+    model: grokVoiceConfigured() ? GROK_VOICE_MODEL : null,
+  });
+}
+
 export async function POST(request: Request) {
   const form = await request.formData();
   const audio = form.get("audio");
@@ -29,6 +43,7 @@ export async function POST(request: Request) {
     return Response.json({
       transcript: suppliedTranscript.trim(),
       voiceAssessment: assessVoice(suppliedTranscript),
+      source: "supplied",
     });
   }
   if (!(audio instanceof File)) {
@@ -38,39 +53,13 @@ export async function POST(request: Request) {
     );
   }
 
-  if (!process.env.XAI_API_KEY) {
-    return Response.json(
-      {
-        transcript:
-          "Audio received. Configure XAI_API_KEY to enable Grok Voice transcription.",
-        voiceAssessment: "audio captured; transcription provider unavailable",
-        demoFallback: true,
-      },
-      { status: 202 },
-    );
-  }
-
-  const upstream = new FormData();
-  upstream.set("file", audio);
-  upstream.set("model", "grok-voice");
-  const response = await fetch("https://api.x.ai/v1/audio/transcriptions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${process.env.XAI_API_KEY}` },
-    body: upstream,
-  });
-  if (!response.ok) {
-    return Response.json(
-      {
-        error: "Grok Voice transcription failed",
-        detail: await response.text(),
-      },
-      { status: 502 },
-    );
-  }
-  const result = (await response.json()) as { text?: string };
-  const transcript = result.text ?? "";
-  return Response.json({
-    transcript,
-    voiceAssessment: assessVoice(transcript),
-  });
+  const result = await transcribeWithGrokVoice(audio);
+  const status = result.source === "grok-voice" ? 200 : 202;
+  return Response.json(
+    {
+      ...result,
+      voiceAssessment: assessVoice(result.transcript),
+    },
+    { status },
+  );
 }
