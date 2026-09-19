@@ -10,11 +10,11 @@ export default function HomePage() {
           Autonomous Health Investigation
         </p>
         <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-          MED-1
+          Iris
         </h1>
         <p className="text-muted-foreground">
-          Onboard medical investigation for deep-space crews. Mission data is
-          served from in-memory onboard storage.
+          Onboard health investigation for deep-space crews. Iris compares
+          personal baselines, environmental context, and onboard evidence.
         </p>
         <Button asChild>
           <Link href="/station">Open medical station</Link>
