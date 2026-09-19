@@ -27,4 +27,37 @@ describe("Iris onboard context", () => {
     expect(reply.severity).toBe("monitor");
     expect(reply.text).toContain("personal baseline");
   });
+
+  it("exposes hull radiation, solar flare, and SPE flux as space weather", () => {
+    const quiet = getSnapshot();
+    expect(quiet.space.map((metric) => metric.label)).toEqual([
+      "Hull radiation",
+      "Solar flare",
+      "SPE flux",
+    ]);
+    expect(quiet.space.find((metric) => metric.label === "Solar flare")?.unit).toBe(
+      "quiet",
+    );
+    setScenario("dire");
+    const storm = getSnapshot();
+    expect(storm.space.find((metric) => metric.label === "Solar flare")?.unit).toBe(
+      "active",
+    );
+    expect(
+      storm.cabin.find((metric) => metric.label === "Cabin pressure")?.unit,
+    ).toBe("kPa");
+    expect(storm.cabin.map((metric) => metric.label)).toEqual([
+      "Cabin O₂",
+      "Cabin CO₂",
+      "Cabin pressure",
+      "Suit pressure",
+    ]);
+    expect(storm.vitals.map((metric) => metric.label)).toEqual([
+      "Heart rate",
+      "Blood pressure",
+      "Temperature",
+      "SpO₂",
+      "Resp. rate",
+    ]);
+  });
 });

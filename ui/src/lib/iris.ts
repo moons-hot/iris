@@ -121,10 +121,14 @@ const specs: Record<
     sys: number;
     dia: number;
     temp: number;
+    spo2: number;
+    rr: number;
     co2: number;
     radiation: number;
     oxygen: number;
-    water: number;
+    suit: number;
+    pressure: number;
+    spe: number;
   }
 > = {
   nominal: {
@@ -132,30 +136,42 @@ const specs: Record<
     sys: 112,
     dia: 72,
     temp: 36.7,
+    spo2: 98,
+    rr: 14,
     co2: 0.62,
     radiation: 0.18,
     oxygen: 20.9,
-    water: 99.8,
+    suit: 29.6,
+    pressure: 101.3,
+    spe: 0.4,
   },
   mild: {
     hr: 65,
     sys: 111,
     dia: 71,
     temp: 36.8,
+    spo2: 97,
+    rr: 16,
     co2: 0.68,
     radiation: 0.2,
     oxygen: 20.9,
-    water: 99.8,
+    suit: 29.5,
+    pressure: 101.2,
+    spe: 0.5,
   },
   dire: {
     hr: 86,
     sys: 92,
     dia: 59,
     temp: 37.3,
+    spo2: 91,
+    rr: 24,
     co2: 0.7,
     radiation: 1.46,
     oxygen: 20.7,
-    water: 99.7,
+    suit: 24.1,
+    pressure: 100.8,
+    spe: 18.2,
   },
 };
 
@@ -192,46 +208,53 @@ export function getSnapshot(): Snapshot {
         direction: scenario === "dire" ? "up" : "stable",
       },
       {
-        label: "Strength",
-        value: scenario === "dire" ? 78 : 96,
-        unit: "% baseline",
-        baseline: 96,
+        label: "SpO₂",
+        value: Math.round(jitter(s.spo2, 0.4)),
+        unit: "%",
+        baseline: 98,
         direction: scenario === "dire" ? "down" : "stable",
       },
       {
-        label: "Nutrition",
-        value: scenario === "dire" ? 42 : 91,
-        unit: "% target",
-        baseline: 90,
-        direction: scenario === "dire" ? "down" : "stable",
+        label: "Resp. rate",
+        value: Math.round(jitter(s.rr, 0.6)),
+        unit: "/min",
+        baseline: 14,
+        direction: scenario === "dire" ? "up" : "stable",
       },
     ],
     cabin: [
       {
-        label: "Oxygen",
+        label: "Cabin O₂",
         value: jitter(s.oxygen, 0.05),
         unit: "%",
         baseline: 20.9,
         direction: scenario === "dire" ? "down" : "stable",
       },
       {
-        label: "CO₂",
+        label: "Cabin CO₂",
         value: jitter(s.co2, 0.02),
         unit: "%",
         baseline: 0.61,
         direction: scenario === "mild" ? "up" : "stable",
       },
       {
-        label: "Water purity",
-        value: s.water,
-        unit: "%",
-        baseline: 99.8,
-        direction: "stable",
+        label: "Cabin pressure",
+        value: jitter(s.pressure, 0.05),
+        unit: "kPa",
+        baseline: 101.3,
+        direction: scenario === "dire" ? "down" : "stable",
+      },
+      {
+        label: "Suit pressure",
+        value: jitter(s.suit, 0.04),
+        unit: "kPa",
+        baseline: 29.6,
+        direction: scenario === "dire" ? "down" : "stable",
       },
     ],
     space: [
       {
-        label: "Radiation",
+        label: "Hull radiation",
         value: jitter(s.radiation, 0.04),
         unit: "mSv/h",
         baseline: 0.18,
@@ -240,8 +263,15 @@ export function getSnapshot(): Snapshot {
       {
         label: "Solar flare",
         value: scenario === "dire" ? 1 : 0,
-        unit: scenario === "dire" ? "active" : "clear",
+        unit: scenario === "dire" ? "active" : "quiet",
         baseline: 0,
+        direction: scenario === "dire" ? "up" : "stable",
+      },
+      {
+        label: "SPE flux",
+        value: jitter(s.spe, scenario === "dire" ? 0.8 : 0.05),
+        unit: "pfu",
+        baseline: 0.4,
         direction: scenario === "dire" ? "up" : "stable",
       },
     ],
@@ -296,7 +326,7 @@ export function investigationReply(input: string, voiceAssessment?: string) {
     throw new Error("Incomplete onboard telemetry snapshot");
   }
   const observations = dire
-    ? `Your heart rate is ${heartRate.value} bpm against a personal resting baseline of 62 bpm, while blood pressure is ${bloodPressure.value}${bloodPressure.unit}. Radiation is ${radiation.value} mSv/h and a solar event is active.`
+    ? `Your heart rate is ${heartRate.value} bpm against a personal resting baseline of 62 bpm, while blood pressure is ${bloodPressure.value}${bloodPressure.unit}. Hull radiation is ${radiation.value} mSv/h and a solar flare is active — treat this as a shielding window, not a diagnosis.`
     : `Your heart rate is ${heartRate.value} bpm against a personal resting baseline of 62 bpm. Blood pressure, temperature, oxygen, and radiation remain near your current mission baseline.`;
   const hypothesis = dire
     ? "The timing of symptoms, rising radiation, and the two related peer logs create a time-linked safety concern. This is not enough to establish that radiation caused the symptoms; dehydration, orthostatic effects, medication, infection, and other explanations still require checking."
