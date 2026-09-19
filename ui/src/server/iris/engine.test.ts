@@ -108,7 +108,12 @@ describe("purpose-bound authorization", () => {
       (entry) => entry.fragment.fragmentType === "date_of_birth",
     )!;
     expect(
-      applyTransform("1979-04-18", dob.transform, PATIENT, new Date("2026-09-19")),
+      applyTransform(
+        "1979-04-18",
+        dob.transform,
+        PATIENT,
+        new Date("2026-09-19"),
+      ),
     ).toBe("Age 45-50");
   });
 
@@ -141,6 +146,38 @@ describe("purpose-bound authorization", () => {
     expect(allowed).not.toContain("diagnoses");
   });
 
+  it("intersects requested types with policy allow and omits the rest", () => {
+    const decision = decide("treatment", {
+      requestedTypes: ["vitals", "medications", "labs", "psychiatric_note"],
+    });
+    const allowed = allowedTypes(decision);
+
+    expect(allowed).toEqual(
+      expect.arrayContaining(["vitals", "medications", "labs"]),
+    );
+    expect(allowed).not.toContain("psychiatric_note");
+    expect(allowed).not.toContain("cardiac_history");
+
+    const psych = decision.fragments.find(
+      (entry) => entry.fragment.fragmentType === "psychiatric_note",
+    );
+    expect(psych?.decision).toBe("deny");
+    expect(psych?.reason).toMatch(
+      /outside the current active treatment context/i,
+    );
+    expect(
+      decision.fragments.some(
+        (entry) => entry.fragment.fragmentType === "cardiac_history",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps the purpose-wide lens when the requested list is empty", () => {
+    expect(allowedTypes(decide("treatment", { requestedTypes: [] }))).toEqual(
+      allowedTypes(decide("treatment")),
+    );
+  });
+
   it("explains every restriction in words a human can read", () => {
     const decision = decide("treatment");
     for (const entry of decision.fragments) {
@@ -149,7 +186,9 @@ describe("purpose-bound authorization", () => {
     const psych = decision.fragments.find(
       (entry) => entry.fragment.fragmentType === "psychiatric_note",
     )!;
-    expect(psych.reason).toMatch(/outside the current active treatment context/i);
+    expect(psych.reason).toMatch(
+      /outside the current active treatment context/i,
+    );
   });
 });
 

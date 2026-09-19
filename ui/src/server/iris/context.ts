@@ -124,7 +124,9 @@ export async function requireActiveSession(sessionId: string): Promise<{
         metadata: { presenceAgeMs: age },
       },
     ]);
-    throw new SessionInvalidError("Hardware presence lost. Session terminated.");
+    throw new SessionInvalidError(
+      "Hardware presence lost. Session terminated.",
+    );
   }
 
   const actor = await store.getUser(session.actorId);
@@ -139,6 +141,11 @@ export interface BuildLensOptions {
   task?: string | null;
   /** Set false for internal callers that log their own event (handoffs, etc). */
   logEvents?: boolean;
+  /**
+   * Optional intersection with policy. Empty/missing keeps the purpose-wide lens
+   * used by the purpose toggle and `/api/context`.
+   */
+  requestedTypes?: FragmentType[];
 }
 
 /**
@@ -185,6 +192,7 @@ export async function buildLens(
     hasRelationship,
     breakGlassActive: isBreakGlass,
     delegation,
+    requestedTypes: options.requestedTypes,
   });
 
   const authorizedIds = new Set(decision.allowedIds);
@@ -197,9 +205,7 @@ export async function buildLens(
   const fragments = decision.fragments.map<LensFragment>((entry) => {
     const raw = plaintextById.get(entry.fragment.id);
     const value =
-      raw === undefined
-        ? null
-        : applyTransform(raw, entry.transform, patient);
+      raw === undefined ? null : applyTransform(raw, entry.transform, patient);
     return {
       id: entry.fragment.id,
       label: entry.fragment.label,
@@ -215,9 +221,8 @@ export async function buildLens(
   });
 
   const displayNameForLens =
-    decision.fragments.find(
-      (entry) => entry.fragment.fragmentType === "name",
-    )?.transform === "pseudonymize"
+    decision.fragments.find((entry) => entry.fragment.fragmentType === "name")
+      ?.transform === "pseudonymize"
       ? patient.pseudonym
       : displayName;
 
@@ -255,6 +260,7 @@ export async function buildLens(
           reduced: reducedTypes,
           ruleId: decision.ruleId,
           requestedPurpose: decision.purpose,
+          requestedTypes: options.requestedTypes ?? [],
           // Carried on every read in the window so the patient sees the same
           // stated reason on each one, not only on the confirmation event.
           ...(isBreakGlass && session.breakGlassReason

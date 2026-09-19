@@ -30,6 +30,11 @@ export interface EvaluateInput {
   breakGlassActive?: boolean;
   delegation?: Delegation | null;
   now?: Date;
+  /**
+   * When set and non-empty, only these types are evaluated. Unrequested fields
+   * are omitted (not denied). An empty or missing list keeps the purpose-wide lens.
+   */
+  requestedTypes?: FragmentType[];
 }
 
 export interface FragmentDecision {
@@ -103,6 +108,13 @@ export function evaluate(input: EvaluateInput): PolicyDecision {
     ? "emergency_treatment"
     : input.purpose;
   const task = input.task ?? null;
+  const requestedTypes = input.requestedTypes ?? [];
+  const fragments =
+    requestedTypes.length > 0
+      ? input.fragments.filter((fragment) =>
+          requestedTypes.includes(fragment.fragmentType),
+        )
+      : input.fragments;
 
   const base = {
     purpose: input.purpose,
@@ -114,7 +126,7 @@ export function evaluate(input: EvaluateInput): PolicyDecision {
   const rule = findPolicyRule(input.rules, input.actor.role, effectivePurpose);
   if (!rule) {
     const reason = `No policy grants ${input.actor.role} access for ${PURPOSE_LABELS[effectivePurpose]}.`;
-    return finalize({ ...base, ruleId: null }, denyAll(input.fragments, reason));
+    return finalize({ ...base, ruleId: null }, denyAll(fragments, reason));
   }
 
   // Break-glass deliberately bypasses the relationship gate. An authenticated
@@ -122,10 +134,7 @@ export function evaluate(input: EvaluateInput): PolicyDecision {
   if (rule.requiresRelationship && !input.hasRelationship && !breakGlass) {
     const reason =
       "No care relationship with this patient is on record for the current context.";
-    return finalize(
-      { ...base, ruleId: rule.id },
-      denyAll(input.fragments, reason),
-    );
+    return finalize({ ...base, ruleId: rule.id }, denyAll(fragments, reason));
   }
 
   // Engineers only ever see data through a scoped, time-limited delegation
@@ -141,15 +150,12 @@ export function evaluate(input: EvaluateInput): PolicyDecision {
     if (!usable) {
       const reason =
         "No active delegation covers this patient. Ask a clinician to grant a scoped debug view.";
-      return finalize(
-        { ...base, ruleId: rule.id },
-        denyAll(input.fragments, reason),
-      );
+      return finalize({ ...base, ruleId: rule.id }, denyAll(fragments, reason));
     }
     scopeLimit = delegation.scope;
   }
 
-  const decisions = input.fragments.map<FragmentDecision>((fragment) => {
+  const decisions = fragments.map<FragmentDecision>((fragment) => {
     const inRule = rule.allowedTypes.includes(fragment.fragmentType);
     const inScope =
       scopeLimit === null || scopeLimit.includes(fragment.fragmentType);

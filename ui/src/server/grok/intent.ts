@@ -74,12 +74,26 @@ export function keywordIntent(utterance: string): Intent {
   const text = utterance.toLowerCase();
   const has = (...terms: string[]) => terms.some((term) => text.includes(term));
 
-  if (has("break glass", "breakglass", "emergency access", "unconscious", "overdose", "override")) {
+  if (
+    has(
+      "break glass",
+      "breakglass",
+      "emergency access",
+      "unconscious",
+      "overdose",
+      "override",
+    )
+  ) {
     return {
       action: "request_break_glass",
       purpose: "emergency_treatment",
       task: "emergency_context",
-      requestedContext: ["medications", "allergies", "diagnoses", "psychiatric_note"],
+      requestedContext: [
+        "medications",
+        "allergies",
+        "diagnoses",
+        "psychiatric_note",
+      ],
       source: "keyword",
       utterance,
     };
@@ -102,12 +116,25 @@ export function keywordIntent(utterance: string): Intent {
     };
   }
 
-  if (has("engineering", "engineer", "debug", "duplicate", "failed import", "reconciliation")) {
+  if (
+    has(
+      "engineering",
+      "engineer",
+      "debug",
+      "duplicate",
+      "failed import",
+      "reconciliation",
+    )
+  ) {
     return {
       action: "create_engineering_delegation",
       purpose: "engineering_debug",
       task: "medication_reconciliation_debug",
-      requestedContext: ["technical_metadata", "encounter_metadata", "medications"],
+      requestedContext: [
+        "technical_metadata",
+        "encounter_metadata",
+        "medications",
+      ],
       source: "keyword",
       utterance,
     };
@@ -135,7 +162,9 @@ export function keywordIntent(utterance: string): Intent {
     };
   }
 
-  if (has("prescrib", "nsaid", "contraindication", "medication order", "dose")) {
+  if (
+    has("prescrib", "nsaid", "contraindication", "medication order", "dose")
+  ) {
     return {
       action: "request_context",
       purpose: "medication_prescription",
@@ -168,6 +197,9 @@ export function keywordIntent(utterance: string): Intent {
       "medications",
       "cardiac_history",
       "labs",
+      ...(has("psychiatr", "behavioral health", "behavioural health")
+        ? (["psychiatric_note"] as const)
+        : []),
     ],
     source: "keyword",
     utterance,
@@ -194,7 +226,9 @@ export async function extractIntent(utterance: string): Promise<Intent> {
   try {
     const parsed = JSON.parse(raw) as GrokIntentPayload;
     const action =
-      parsed.action && isAction(parsed.action) ? parsed.action : fallback.action;
+      parsed.action && isAction(parsed.action)
+        ? parsed.action
+        : fallback.action;
     const purpose =
       parsed.purpose && isPurpose(parsed.purpose)
         ? parsed.purpose
