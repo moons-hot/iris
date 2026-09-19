@@ -345,12 +345,37 @@ export function setScenario(next: Scenario) {
   return getSnapshot();
 }
 
-export function findEvidence(query: string) {
+function withUnit(value: number | string, unit: string) {
+  if (unit.startsWith(" ") || unit.startsWith("/")) return `${value}${unit}`;
+  return `${value} ${unit}`;
+}
+
+export function formatMetricLine(metric: Metric): string {
+  return `${metric.label}: ${withUnit(metric.value, metric.unit)} (baseline ${withUnit(metric.baseline, metric.unit)}, ${metric.direction})`;
+}
+
+export function buildTelemetryPacket(snapshot: Snapshot) {
+  return {
+    astronaut: snapshot.vitals.map(formatMetricLine),
+    spacecraft: snapshot.cabin.map(formatMetricLine),
+    environment: snapshot.space.map(formatMetricLine),
+    peers: snapshot.peers.map(
+      (peer) =>
+        `${peer.id} ${peer.name}: ${peer.status}, heart rate ${peer.heartRate} bpm`,
+    ),
+  };
+}
+
+export function findEvidence(query: string, snapshot?: Snapshot) {
   const normalized = query.toLowerCase();
   const categories = new Set<string>(["co2"]);
+  const radiation = snapshot?.space.find((metric) => metric.label === "Radiation");
+  const flare = snapshot?.space.find((metric) => metric.label === "Solar flare");
   if (
     /(radiation|flash|nausea|vomit|vision|light)/.test(normalized) ||
-    scenario === "dire"
+    snapshot?.scenario === "dire" ||
+    (radiation?.value ?? 0) > 1 ||
+    (flare?.value ?? 0) > 0
   ) {
     categories.add("radiation");
     categories.add("peer");
@@ -363,39 +388,86 @@ export function findEvidence(query: string) {
   );
 }
 
-export function investigationReply(input: string, voiceAssessment?: string) {
-  const snapshot = getSnapshot();
-  const evidence = findEvidence(input);
+export function investigationReply(
+  input: string,
+  voiceAssessment?: string,
+  telemetry?: Snapshot,
+) {
+  const snapshot = telemetry ?? getSnapshot();
+  const packet = buildTelemetryPacket(snapshot);
+  const evidence = findEvidence(input, snapshot);
   const dire = snapshot.scenario === "dire";
   const mild = snapshot.scenario === "mild";
-  const [heartRate, bloodPressure, temperature] = snapshot.vitals;
-  const [radiation] = snapshot.space;
+  const heartRate = snapshot.vitals.find((metric) => metric.label === "Heart rate");
+  const bloodPressure = snapshot.vitals.find(
+    (metric) => metric.label === "Blood pressure",
+  );
+  const temperature = snapshot.vitals.find(
+    (metric) => metric.label === "Temperature",
+  );
+  const oxygen = snapshot.cabin.find((metric) => metric.label === "Oxygen");
+  const co2 = snapshot.cabin.find((metric) => metric.label === "CO₂");
+  const radiation = snapshot.space.find((metric) => metric.label === "Radiation");
+  const flare = snapshot.space.find((metric) => metric.label === "Solar flare");
   if (!heartRate || !bloodPressure || !radiation) {
     throw new Error("Incomplete onboard telemetry snapshot");
   }
+  const voice = voiceAssessment?.trim()
+    ? voiceAssessment
+    : "no additional voice cues";
   const observations = dire
-    ? `Your heart rate is ${heartRate.value} bpm against a personal resting baseline of 62 bpm, while blood pressure is ${bloodPressure.value}${bloodPressure.unit}. Temperature is ${temperature?.value ?? "elevated"} °C. Radiation is ${radiation.value} mSv/h and a solar event is active.`
+    ? `Voice report: "${input}". Voice signal: ${voice}. Astronaut: heart rate ${heartRate.value} bpm vs personal baseline 62, blood pressure ${bloodPressure.value}${bloodPressure.unit}, temperature ${temperature?.value ?? "elevated"} °C. Spacecraft: oxygen ${oxygen?.value ?? "n/a"}%, CO₂ ${co2?.value ?? "n/a"}%. Space environment: radiation ${radiation.value} mSv/h, solar flare ${flare?.value ?? 0}${flare?.unit ?? ""}.`
     : mild
-      ? `Your heart rate is ${heartRate.value} bpm against a personal resting baseline of 62 bpm. Blood pressure is ${bloodPressure.value}${bloodPressure.unit} and temperature is ${temperature?.value ?? "elevated"} °C versus 36.7 °C. Strength and nutrition are below your usual station targets.`
-      : `Your heart rate is ${heartRate.value} bpm against a personal resting baseline of 62 bpm. Blood pressure, temperature, oxygen, and radiation remain near your current mission baseline.`;
+      ? `Voice report: "${input}". Voice signal: ${voice}. Astronaut: heart rate ${heartRate.value} bpm vs personal baseline 62, blood pressure ${bloodPressure.value}${bloodPressure.unit}, temperature ${temperature?.value ?? "elevated"} °C. Strength and nutrition are below station targets. Spacecraft CO₂ is ${co2?.value ?? "elevated"}% versus 0.61%.`
+      : `Voice report: "${input}". Voice signal: ${voice}. Astronaut heart rate is ${heartRate.value} bpm against a personal resting baseline of 62 bpm. Cabin and space readings remain near the current mission baseline.`;
+  const possibleConcerns = dire
+    ? [
+        "Acute radiation-related illness to investigate given rising dose rate, an active solar event, and reported visual or GI symptoms.",
+        "Circulatory stress: tachycardia with falling blood pressure is a dangerous combination and needs immediate recheck.",
+        "Fever plus weakness and poor intake — infection, dehydration, and other explanations still remain open.",
+      ]
+    : mild
+      ? [
+          "Cabin-linked headache or breathlessness to investigate while CO₂ is above the mission baseline.",
+          "Physiological strain: pulse, blood pressure, and temperature are all up versus personal baseline.",
+          "Reduced strength and nutrition that may be worsening symptom tolerance.",
+        ]
+      : [
+          "Symptom-only concern: the voice report matters even though current telemetry is close to personal baseline.",
+        ];
+  const recommendedActions = dire
+    ? [
+        "Move immediately to the designated shielding protocol.",
+        "Repeat blood pressure and symptom check in 10 minutes; document fluid intake and any emesis.",
+        "Notify the crew medical lead and keep the Earth handoff packet ready.",
+      ]
+    : mild
+      ? [
+          "Sit supported, hydrate, and stop nonessential exertion.",
+          "Repeat pulse, blood pressure, and temperature after five quiet minutes.",
+          "Review cabin CO₂ scrubber status and report whether symptoms change with position.",
+        ]
+      : [
+          "Sit supported and repeat pulse and blood pressure after five quiet minutes.",
+          "Confirm hydration and last meal, then re-report if symptoms change.",
+        ];
   const hypothesis = dire
-    ? "The timing of symptoms, rising radiation, and the two related peer logs create a time-linked safety concern. This is not enough to establish that radiation caused the symptoms; dehydration, orthostatic effects, medication, infection, and other explanations still require checking."
+    ? "The voice report, astronaut telemetry, spacecraft cabin readings, and space-environment spike line up in time. That is a high-priority safety concern, not proof that radiation caused the symptoms."
     : mild
-      ? "Pulse, blood pressure, and temperature have moved away from your personal baseline, while strength and nutrition are down. That pattern warrants a focused recheck of cabin environment, hydration, and exertion; it is not a diagnosis."
-      : "The present measurements do not show a material departure from your personal baseline. Your reported breathing discomfort and headache still matter; they should be followed with a focused recheck rather than dismissed as normal.";
-  const nextStep = dire
-    ? "Immediate next evidence: move to the designated shielding protocol, repeat blood pressure and symptom check in 10 minutes, document fluid intake and emesis, and notify the crew medical lead."
-    : "Next evidence: sit supported, repeat pulse and blood pressure after five quiet minutes, confirm hydration and meal intake, and tell me whether symptoms change with position or activity.";
-  const voice = voiceAssessment ? ` Voice signal: ${voiceAssessment}.` : "";
+      ? "Voice symptoms plus off-baseline vitals and elevated cabin CO₂ form a working investigation, not a diagnosis. Hydration, exertion, and cabin air are the first things to test."
+      : "Telemetry does not yet show a material departure from personal baseline. Keep investigating the reported symptoms rather than dismissing them.";
 
   return {
     id: crypto.randomUUID(),
     severity: dire ? "high" : "monitor",
-    text: `## Iris investigation update\n\n**Observed** — ${observations}${voice}\n\n**Working interpretation** — ${hypothesis}\n\n**What would reduce uncertainty next** — ${nextStep}\n\n**Historical context** — ${evidence.map((item) => `[${item.id}] ${item.snippet}`).join(" ")}`,
+    possibleConcerns,
+    recommendedActions,
+    telemetry: packet,
+    text: `## Iris investigation update\n\n**Observed** — ${observations}\n\n**Possible concerns to investigate** — ${possibleConcerns.join(" ")}\n\n**Immediate actions** — ${recommendedActions.join(" ")}\n\n**Working interpretation** — ${hypothesis}\n\n**Historical context** — ${evidence.map((item) => `[${item.id}] ${item.snippet}`).join(" ")}`,
     speak: dire
-      ? "I am flagging a high-priority monitoring concern. Please move to shielding and repeat your blood pressure now."
+      ? "I am flagging a high-priority concern. Move to shielding now, then we will repeat your blood pressure."
       : mild
-        ? "Your pulse, blood pressure, and temperature are above your personal baseline. Strength and nutrition are down. Let us recheck after a short supported rest."
+        ? "Your pulse, blood pressure, and temperature are above your personal baseline, and cabin CO2 is up. Sit, hydrate, and we will recheck."
         : "Your current measurements are close to your personal baseline. Let us repeat them after a short supported rest.",
     citations: evidence.map((item) => ({
       id: item.id,

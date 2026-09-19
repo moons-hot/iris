@@ -86,4 +86,23 @@ describe("Iris onboard context", () => {
     expect(flare?.value).toBeGreaterThanOrEqual(3);
     expect(flare?.direction).toBe("up");
   });
+
+  it("turns a voice report plus live telemetry into possible concerns and next actions", () => {
+    setScenario("dire");
+    const snapshot = getSnapshot();
+    const reply = investigationReply(
+      "I feel nauseous and I am seeing flashes of light",
+      "reported breathlessness; distress language present",
+      snapshot,
+    );
+
+    expect(reply.telemetry.astronaut.join(" ")).toMatch(/Heart rate/i);
+    expect(reply.telemetry.spacecraft.join(" ")).toMatch(/CO₂|CO2/i);
+    expect(reply.telemetry.environment.join(" ")).toMatch(/Radiation/i);
+    expect(reply.text).toContain("Voice report");
+    expect(reply.text).toContain("Voice signal: reported breathlessness");
+    expect(reply.possibleConcerns.length).toBeGreaterThan(0);
+    expect(reply.recommendedActions.join(" ")).toMatch(/shielding/i);
+    expect(reply.severity).toBe("high");
+  });
 });

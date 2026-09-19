@@ -23,7 +23,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { VoiceWaveInput } from "@/components/station/voice-wave-input";
+import {
+  captureSerialAudio,
+  openEsp32Serial,
+  type BrowserSerialPort,
+} from "@/lib/astronaut-mic";
+import { pickAudioInput, type VoiceInputKind } from "@/lib/usb-voice";
 
 type Metric = {
   label: string;
@@ -47,6 +53,8 @@ type Finding = {
   severity: "high" | "monitor";
   citations: { id: string; title: string; source: string }[];
   speak: string;
+  possibleConcerns?: string[];
+  recommendedActions?: string[];
 };
 
 function MetricList({ metrics }: { metrics: Metric[] }) {
@@ -83,8 +91,12 @@ export default function StationPage() {
   const [finding, setFinding] = useState<Finding | null>(null);
   const [loading, setLoading] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [voiceSource, setVoiceSource] = useState<VoiceInputKind | null>(null);
+  const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
+  const serialAbort = useRef<AbortController | null>(null);
+  const serialPort = useRef<BrowserSerialPort | null>(null);
 
   const refresh = useCallback(async () => {
     const response = await fetch("/api/monitoring/tick");
@@ -112,14 +124,24 @@ export default function StationPage() {
     }
   }
 
-  async function investigate(report = message, voiceAssessment?: string) {
-    if (!report.trim()) return;
+  async function investigate(
+    report = message,
+    voiceAssessment?: string,
+    telemetry?: Snapshot | null,
+  ) {
+    const packet = telemetry ?? snapshot;
+    const text = report.trim();
+    if (!text) return;
     setLoading(true);
     try {
       const response = await fetch("/api/investigations/active/actions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: report, voiceAssessment }),
+        body: JSON.stringify({
+          message: text,
+          voiceAssessment,
+          telemetry: packet,
+        }),
       });
       const result = (await response.json()) as Finding;
       setFinding(result);
@@ -141,40 +163,126 @@ export default function StationPage() {
     setFinding(null);
   }
 
-  async function toggleRecording() {
-    if (recording) {
-      recorder.current?.stop();
-      return;
+  async function submitVoiceCapture(audio?: File, transcript?: string) {
+    setLoading(true);
+    const form = new FormData();
+    if (audio) form.set("audio", audio);
+    if (transcript) form.set("transcript", transcript);
+    if (!audio && !transcript) {
+      form.set("transcript", "Voice report captured after scenario start.");
     }
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const [voiceResponse, tickResponse] = await Promise.all([
+      fetch("/api/voice", {
+        method: "POST",
+        body: form,
+      }),
+      fetch("/api/monitoring/tick"),
+    ]);
+    const result = (await voiceResponse.json()) as {
+      transcript?: string;
+      voiceAssessment?: string;
+    };
+    const live = tickResponse.ok
+      ? ((await tickResponse.json()) as Snapshot)
+      : snapshot;
+    if (live) setSnapshot(live);
+    await investigate(
+      result.transcript?.trim() ||
+        transcript?.trim() ||
+        "Voice report captured after scenario start.",
+      result.voiceAssessment,
+      live,
+    );
+  }
+
+  function startBrowserRecording(stream: MediaStream, kind: VoiceInputKind) {
     const media = new MediaRecorder(stream);
     chunks.current = [];
     media.ondataavailable = (event) => chunks.current.push(event.data);
     media.onstop = async () => {
       setRecording(false);
+      setAudioStream(null);
       stream.getTracks().forEach((track) => track.stop());
-      const form = new FormData();
-      form.set(
-        "audio",
-        new File(
-          [new Blob(chunks.current, { type: media.mimeType })],
-          "astronaut-report.webm",
-          { type: media.mimeType },
-        ),
+      const file = new File(
+        [new Blob(chunks.current, { type: media.mimeType })],
+        "astronaut-report.webm",
+        { type: media.mimeType },
       );
-      const response = await fetch("/api/voice", {
-        method: "POST",
-        body: form,
-      });
-      const result = (await response.json()) as {
-        transcript: string;
-        voiceAssessment: string;
-      };
-      await investigate(result.transcript, result.voiceAssessment);
+      await submitVoiceCapture(file);
     };
     recorder.current = media;
+    setVoiceSource(kind);
+    setAudioStream(stream);
     media.start();
     setRecording(true);
+  }
+
+  async function startEsp32SerialRecording() {
+    const port = await openEsp32Serial();
+    serialPort.current = port;
+    const abort = new AbortController();
+    serialAbort.current = abort;
+    setVoiceSource("esp32");
+    setRecording(true);
+    try {
+      const captured = await captureSerialAudio(port, abort.signal);
+      await submitVoiceCapture(captured.file, captured.transcript);
+    } finally {
+      setRecording(false);
+      setAudioStream(null);
+      serialAbort.current = null;
+      serialPort.current = null;
+    }
+  }
+
+  async function toggleRecording() {
+    if (recording) {
+      recorder.current?.stop();
+      serialAbort.current?.abort();
+      return;
+    }
+
+    let esp32Connected = false;
+    try {
+      const response = await fetch("/api/voice/devices");
+      if (response.ok) {
+        const inventory = (await response.json()) as { connected?: boolean };
+        esp32Connected = Boolean(inventory.connected);
+      }
+    } catch {
+      esp32Connected = false;
+    }
+
+    if (esp32Connected) {
+      try {
+        const probe = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+        const inputs = await navigator.mediaDevices.enumerateDevices();
+        const pick = pickAudioInput(inputs, true);
+        if (pick.mode === "audio" && pick.deviceId) {
+          const currentId = probe.getAudioTracks()[0]?.getSettings().deviceId;
+          if (currentId && currentId === pick.deviceId) {
+            startBrowserRecording(probe, "esp32");
+            return;
+          }
+          probe.getTracks().forEach((track) => track.stop());
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: { deviceId: { exact: pick.deviceId } },
+          });
+          startBrowserRecording(stream, "esp32");
+          return;
+        }
+        probe.getTracks().forEach((track) => track.stop());
+        await startEsp32SerialRecording();
+        return;
+      } catch {
+        // ESP32 was seen on USB but could not be opened; use the MacBook mic.
+      }
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    startBrowserRecording(stream, "macbook");
   }
 
   if (!snapshot)
@@ -260,9 +368,38 @@ export default function StationPage() {
                         <Volume2 />
                       </Button>
                     </div>
-                    <div className="whitespace-pre-wrap text-sm leading-6">
-                      {finding.text.replaceAll("## ", "").replaceAll("**", "")}
-                    </div>
+                    {finding.possibleConcerns?.length ? (
+                      <div className="space-y-3 text-sm leading-6">
+                        <section>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Possible concerns to investigate
+                          </p>
+                          <ul className="mt-1 list-disc space-y-1 pl-4">
+                            {finding.possibleConcerns.map((concern) => (
+                              <li key={concern}>{concern}</li>
+                            ))}
+                          </ul>
+                        </section>
+                        {finding.recommendedActions?.length ? (
+                          <section>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              Immediate actions
+                            </p>
+                            <ul className="mt-1 list-disc space-y-1 pl-4">
+                              {finding.recommendedActions.map((action) => (
+                                <li key={action}>{action}</li>
+                              ))}
+                            </ul>
+                          </section>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="whitespace-pre-wrap text-sm leading-6">
+                        {finding.text
+                          .replaceAll("## ", "")
+                          .replaceAll("**", "")}
+                      </div>
+                    )}
                     <div className="flex flex-wrap gap-2">
                       {finding.citations.map((citation) => (
                         <Badge
@@ -281,13 +418,13 @@ export default function StationPage() {
                     below.
                   </div>
                 )}
-                <div className="flex gap-2">
-                  <Input
+                <div className="flex items-center gap-2">
+                  <VoiceWaveInput
                     value={message}
-                    onChange={(event) => setMessage(event.target.value)}
-                    onKeyDown={(event) =>
-                      event.key === "Enter" && void investigate()
-                    }
+                    onChange={setMessage}
+                    onSubmit={() => void investigate()}
+                    recording={recording}
+                    stream={audioStream}
                     placeholder="Type a symptom report or question…"
                   />
                   <Button onClick={() => void investigate()} disabled={loading}>
@@ -298,11 +435,28 @@ export default function StationPage() {
                     variant={recording ? "destructive" : "outline"}
                     size="icon"
                     onClick={() => void toggleRecording()}
-                    aria-label="Record voice report"
+                    aria-label={
+                      voiceSource === "esp32"
+                        ? "Record voice report with ESP32 USB microphone"
+                        : "Record voice report with MacBook microphone"
+                    }
+                    title={
+                      voiceSource === "esp32"
+                        ? "ESP32 USB microphone"
+                        : "MacBook microphone"
+                    }
                   >
                     <Mic />
                   </Button>
                 </div>
+                {voiceSource ? (
+                  <p className="text-xs text-muted-foreground">
+                    {recording ? "Recording via " : "Voice input: "}
+                    {voiceSource === "esp32"
+                      ? "ESP32 USB"
+                      : "MacBook microphone"}
+                  </p>
+                ) : null}
               </CardContent>
             </Card>
             <Card size="sm">
