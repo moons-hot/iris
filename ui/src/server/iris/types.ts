@@ -4,6 +4,8 @@ export const ROLES = [
   "reception",
   "engineer",
   "compliance",
+  /** The person the record is about. Never granted a policy rule. */
+  "patient",
 ] as const;
 
 export type Role = (typeof ROLES)[number];

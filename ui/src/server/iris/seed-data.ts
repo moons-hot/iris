@@ -58,7 +58,35 @@ export const SEED_USERS: User[] = [
     role: "engineer",
     department: "Clinical Systems",
   },
+  {
+    id: "PAT-1048",
+    fullName: "Maya Patel",
+    role: "patient",
+    department: "Patient portal",
+  },
+  {
+    id: "PAT-2210",
+    fullName: "Daniel Osei",
+    role: "patient",
+    department: "Patient portal",
+  },
 ];
+
+/**
+ * Which record a patient account is the subject of.
+ *
+ * Patients authenticate as themselves and can only ever reach their own
+ * timeline, so this is the one place that link is made. It is static demo data
+ * rather than a schema column, so both stores read it the same way.
+ */
+export const PATIENT_ACCOUNTS: Record<string, string> = {
+  "PAT-1048": "P1048",
+  "PAT-2210": "P2210",
+};
+
+export function patientIdForActor(actorId: string): string | null {
+  return PATIENT_ACCOUNTS[actorId] ?? null;
+}
 
 export const SEED_DEVICES: Device[] = [
   {
@@ -85,20 +113,82 @@ export const SEED_DEVICES: Device[] = [
     label: "Iris Key - Sarah Kim",
     secretHex: demoDeviceSecret("IRIS-0203"),
   },
+  // Same challenge-response path as a clinician's key, different subject.
+  {
+    id: "IRIS-PATIENT-1048",
+    userId: "PAT-1048",
+    label: "Patient card - Maya Patel",
+    secretHex: demoDeviceSecret("IRIS-PATIENT-1048"),
+  },
+  {
+    id: "IRIS-PATIENT-2210",
+    userId: "PAT-2210",
+    label: "Patient card - Daniel Osei",
+    secretHex: demoDeviceSecret("IRIS-PATIENT-2210"),
+  },
 ];
 
 export const SEED_PATIENTS: Patient[] = [
   { id: "P1048", pseudonym: "Patient P1048", dateOfBirth: "1979-04-18" },
   { id: "P2210", pseudonym: "Patient P2210", dateOfBirth: "1992-11-02" },
   { id: "P3187", pseudonym: "Patient P3187", dateOfBirth: "1965-01-27" },
+  { id: "P4402", pseudonym: "Patient P4402", dateOfBirth: "1988-03-14" },
+  { id: "P5178", pseudonym: "Patient P5178", dateOfBirth: "1954-07-09" },
+  { id: "P6023", pseudonym: "Patient P6023", dateOfBirth: "1971-12-30" },
+  { id: "P6519", pseudonym: "Patient P6519", dateOfBirth: "2001-05-22" },
+  { id: "P7744", pseudonym: "Patient P7744", dateOfBirth: "1946-09-03" },
+  { id: "P8130", pseudonym: "Patient P8130", dateOfBirth: "1983-02-17" },
+  { id: "P8291", pseudonym: "Patient P8291", dateOfBirth: "1995-10-11" },
+  { id: "P9006", pseudonym: "Patient P9006", dateOfBirth: "1967-06-25" },
+  { id: "P9412", pseudonym: "Patient P9412", dateOfBirth: "1979-11-08" },
 ];
 
-/** Display names live outside the encrypted store only for patient lookup. */
-export const PATIENT_DIRECTORY: Record<string, string> = {
-  P1048: "Maya Patel",
-  P2210: "Daniel Osei",
-  P3187: "Renata Silva",
+export interface DirectoryEntry {
+  firstName: string;
+  lastName: string;
+}
+
+/**
+ * Display names live outside the encrypted store only for patient lookup.
+ *
+ * Renata and Marcus Silva share a surname on purpose: a search for "silva"
+ * has to be able to return more than one row.
+ */
+export const PATIENT_NAMES: Record<string, DirectoryEntry> = {
+  P1048: { firstName: "Maya", lastName: "Patel" },
+  P2210: { firstName: "Daniel", lastName: "Osei" },
+  P3187: { firstName: "Renata", lastName: "Silva" },
+  P4402: { firstName: "Marcus", lastName: "Silva" },
+  P5178: { firstName: "Aisha", lastName: "Rahman" },
+  P6023: { firstName: "Tomas", lastName: "Novak" },
+  P6519: { firstName: "Grace", lastName: "Lin" },
+  P7744: { firstName: "Ethan", lastName: "Brooks" },
+  P8130: { firstName: "Priya", lastName: "Anand" },
+  P8291: { firstName: "Nadia", lastName: "Okafor" },
+  P9006: { firstName: "Lena", lastName: "Fischer" },
+  P9412: { firstName: "Omar", lastName: "Haddad" },
 };
+
+export const PATIENT_DIRECTORY: Record<string, string> = Object.fromEntries(
+  Object.entries(PATIENT_NAMES).map(([id, name]) => [
+    id,
+    `${name.firstName} ${name.lastName}`,
+  ]),
+);
+
+/**
+ * The Postgres path stores the name as a single encrypted fragment, so the
+ * doctor APIs split it back apart rather than carry a second schema column.
+ */
+export function splitName(full: string): DirectoryEntry {
+  const trimmed = full.trim();
+  const cut = trimmed.lastIndexOf(" ");
+  if (cut === -1) return { firstName: trimmed, lastName: "" };
+  return {
+    firstName: trimmed.slice(0, cut),
+    lastName: trimmed.slice(cut + 1),
+  };
+}
 
 function hoursAgo(hours: number): string {
   return new Date(Date.now() - hours * 3_600_000).toISOString();
@@ -126,16 +216,76 @@ export const SEED_ENCOUNTERS: Encounter[] = [
     reason: "Annual physical",
     startedAt: hoursAgo(50),
   },
+  {
+    id: "E6104",
+    patientId: "P3187",
+    department: "Cardiology",
+    reason: "Blood pressure review",
+    startedAt: hoursAgo(8),
+  },
+  {
+    id: "E6212",
+    patientId: "P4402",
+    department: "Cardiology",
+    reason: "Hypertension follow-up",
+    startedAt: hoursAgo(5),
+  },
+  {
+    id: "E6330",
+    patientId: "P5178",
+    department: "Cardiology",
+    reason: "Post-op wound check",
+    startedAt: hoursAgo(11),
+  },
+  {
+    id: "E6448",
+    patientId: "P6023",
+    department: "Cardiology",
+    reason: "New-onset palpitations",
+    startedAt: hoursAgo(2),
+  },
+  {
+    id: "E6577",
+    patientId: "P6519",
+    department: "Cardiology",
+    reason: "Exercise tolerance review",
+    startedAt: hoursAgo(19),
+  },
+  {
+    id: "E6690",
+    patientId: "P7744",
+    department: "Cardiology",
+    reason: "Anticoagulation review",
+    startedAt: hoursAgo(7),
+  },
+  {
+    id: "E6805",
+    patientId: "P8130",
+    department: "Cardiology",
+    reason: "Palpitations, thyroid workup",
+    startedAt: hoursAgo(30),
+  },
 ];
 
+/**
+ * DOC-001 is attending for eight patients. P2210, P8291, P9006 and P9412 have
+ * no row here on purpose: they are the off-team patients the lookup surface and
+ * break-glass flow are built around.
+ */
 export const SEED_RELATIONSHIPS: Array<{
   actorId: string;
   patientId: string;
   relationship: string;
 }> = [
   { actorId: "DOC-001", patientId: "P1048", relationship: "attending" },
-  { actorId: "NUR-014", patientId: "P1048", relationship: "assigned_nurse" },
   { actorId: "DOC-001", patientId: "P3187", relationship: "attending" },
+  { actorId: "DOC-001", patientId: "P4402", relationship: "attending" },
+  { actorId: "DOC-001", patientId: "P5178", relationship: "attending" },
+  { actorId: "DOC-001", patientId: "P6023", relationship: "attending" },
+  { actorId: "DOC-001", patientId: "P6519", relationship: "attending" },
+  { actorId: "DOC-001", patientId: "P7744", relationship: "attending" },
+  { actorId: "DOC-001", patientId: "P8130", relationship: "attending" },
+  { actorId: "NUR-014", patientId: "P1048", relationship: "assigned_nurse" },
 ];
 
 export interface SeedFragment {
@@ -149,7 +299,7 @@ export interface SeedFragment {
   value: string;
 }
 
-export const SEED_FRAGMENTS: SeedFragment[] = [
+const CHART_FRAGMENTS: SeedFragment[] = [
   {
     id: "F-P1048-name",
     patientId: "P1048",
@@ -510,6 +660,16 @@ export const SEED_FRAGMENTS: SeedFragment[] = [
     value: "Metformin 500mg twice daily\nAmlodipine 5mg daily",
   },
   {
+    id: "F-P3187-visit-reason",
+    patientId: "P3187",
+    encounterId: "E6104",
+    fragmentType: "visit_reason",
+    label: "Reason for visit",
+    sensitivity: "clinical",
+    purposeClasses: ["treatment", "emergency_treatment"],
+    value: "Blood pressure above target on current dose",
+  },
+  {
     id: "F-P3187-psych-note",
     patientId: "P3187",
     encounterId: null,
@@ -519,4 +679,112 @@ export const SEED_FRAGMENTS: SeedFragment[] = [
     purposeClasses: ["emergency_treatment"],
     value: "History of depressive episode 2019, no current treatment.",
   },
+];
+
+const IDENTIFIER_PURPOSES: Purpose[] = [
+  "treatment",
+  "scheduling",
+  "research",
+  "emergency_treatment",
+];
+
+/**
+ * The other patients exist so the care-team list and the off-list lookup are
+ * real rather than a single row. Only P1048 carries a full chart; everyone else
+ * gets the three fields a list row and a chart header actually need.
+ */
+const MINIMAL_PATIENTS: Array<{
+  patientId: string;
+  encounterId: string | null;
+  visitReason: string;
+}> = [
+  {
+    patientId: "P4402",
+    encounterId: "E6212",
+    visitReason: "Home readings 150/95 despite amlodipine",
+  },
+  {
+    patientId: "P5178",
+    encounterId: "E6330",
+    visitReason: "Sternotomy wound review, day 12",
+  },
+  {
+    patientId: "P6023",
+    encounterId: "E6448",
+    visitReason: "Intermittent palpitations for two weeks",
+  },
+  {
+    patientId: "P6519",
+    encounterId: "E6577",
+    visitReason: "Breathless on stairs since a chest infection",
+  },
+  {
+    patientId: "P7744",
+    encounterId: "E6690",
+    visitReason: "Warfarin dosing review, INR unstable",
+  },
+  {
+    patientId: "P8130",
+    encounterId: "E6805",
+    visitReason: "Palpitations with weight loss, thyroid workup",
+  },
+  {
+    patientId: "P8291",
+    encounterId: null,
+    visitReason: "Ankle swelling, cause unclear",
+  },
+  {
+    patientId: "P9006",
+    encounterId: null,
+    visitReason: "Chest tightness on exertion",
+  },
+  {
+    patientId: "P9412",
+    encounterId: null,
+    visitReason: "Syncope while driving",
+  },
+];
+
+function minimalFragments(entry: (typeof MINIMAL_PATIENTS)[number]): SeedFragment[] {
+  const { patientId, encounterId, visitReason } = entry;
+  const patient = SEED_PATIENTS.find((candidate) => candidate.id === patientId)!;
+  const name = PATIENT_NAMES[patientId]!;
+
+  return [
+    {
+      id: `F-${patientId}-name`,
+      patientId,
+      encounterId: null,
+      fragmentType: "name",
+      label: "Patient name",
+      sensitivity: "identifier",
+      purposeClasses: IDENTIFIER_PURPOSES,
+      value: `${name.firstName} ${name.lastName}`,
+    },
+    {
+      id: `F-${patientId}-dob`,
+      patientId,
+      encounterId: null,
+      fragmentType: "date_of_birth",
+      label: "Date of birth",
+      sensitivity: "identifier",
+      purposeClasses: IDENTIFIER_PURPOSES,
+      value: patient.dateOfBirth,
+    },
+    {
+      id: `F-${patientId}-visit-reason`,
+      patientId,
+      encounterId,
+      fragmentType: "visit_reason",
+      label: "Reason for visit",
+      sensitivity: "clinical",
+      purposeClasses: ["treatment", "emergency_treatment"],
+      value: visitReason,
+    },
+  ];
+}
+
+export const SEED_FRAGMENTS: SeedFragment[] = [
+  ...CHART_FRAGMENTS,
+  ...MINIMAL_PATIENTS.flatMap(minimalFragments),
 ];

@@ -34,6 +34,11 @@ const RESOURCE_TYPES = [
   "clinical_note",
 ];
 
+/**
+ * Deliberately only three of the twelve patients. Spreading 4,800 backdated
+ * events across the whole directory would leave every patient timeline too thin
+ * to read; concentrating them keeps three timelines dense enough to demo.
+ */
 const PATIENTS = ["P1048", "P2210", "P3187"];
 
 /** Every override carries the reason stated at the time, including the backdated ones. */

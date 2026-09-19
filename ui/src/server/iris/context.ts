@@ -60,6 +60,33 @@ export function breakGlassActive(session: Session, now = new Date()): boolean {
   return new Date(session.breakGlassUntil).getTime() > now.getTime();
 }
 
+/**
+ * Which patient, if any, the current emergency window was opened on.
+ *
+ * The window lives on the session, but the patient it was granted for lives on
+ * the grant event, so the off-list lookup reads it back from the audit trail
+ * rather than keeping a second copy of the same fact.
+ */
+export async function activeBreakGlassPatientId(
+  sessionId: string,
+): Promise<string | null> {
+  const store = getStore();
+  const session = await store.getSession(sessionId);
+  if (!session || !breakGlassActive(session)) return null;
+
+  const events = await store.listEvents({
+    actorId: session.actorId,
+    limit: 100,
+  });
+  const grant = events.find(
+    (event) =>
+      event.sessionId === sessionId &&
+      event.resourceType === "expanded_clinical_record" &&
+      event.decision === "allow",
+  );
+  return grant?.patientId ?? null;
+}
+
 export async function requireActiveSession(sessionId: string): Promise<{
   session: Session;
   actor: User;

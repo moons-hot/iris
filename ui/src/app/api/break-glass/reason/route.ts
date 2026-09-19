@@ -1,20 +1,25 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { createChallenge } from "@/server/iris/challenges";
-import { SessionInvalidError, requireActiveSession } from "@/server/iris/context";
+import {
+  SessionInvalidError,
+  breakGlassActive,
+  requireActiveSession,
+} from "@/server/iris/context";
 import { getStore } from "@/server/store";
 
 const bodySchema = z.object({
   sessionId: z.string().min(3),
   patientId: z.string().min(2),
+  reason: z.string().min(4),
 });
 
 /**
- * Step one of break-glass: record that it was requested and hand back a nonce
- * that the Iris Key must sign when the clinician physically confirms.
+ * Step three: document why, after the window is already open.
  *
- * This step never evaluates whether the emergency is "good enough".
+ * Access is never held hostage to this call. It updates the session, attaches
+ * the reason to the audit trail, and lets the patient timeline show the words
+ * the clinician actually gave.
  */
 export async function POST(request: Request): Promise<NextResponse> {
   const parsed = bodySchema.safeParse(await request.json());
@@ -24,13 +29,16 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     const { session, actor } = await requireActiveSession(parsed.data.sessionId);
-    const store = getStore();
+    if (!breakGlassActive(session)) {
+      return NextResponse.json(
+        { error: "No active emergency window for this session." },
+        { status: 409 },
+      );
+    }
 
-    const challenge = createChallenge({
-      deviceId: session.deviceId,
-      kind: "confirm",
-      sessionId: session.id,
-      payload: { patientId: parsed.data.patientId, reason: null },
+    const store = getStore();
+    await store.updateSession(session.id, {
+      breakGlassReason: parsed.data.reason,
     });
 
     await store.appendEvents([
@@ -42,21 +50,20 @@ export async function POST(request: Request): Promise<NextResponse> {
         encounterId: null,
         sessionId: session.id,
         purpose: "emergency_treatment",
-        task: "break_glass_requested",
-        resourceType: "break_glass",
-        decision: "requested",
-        reason: "Break-glass requested, awaiting physical confirmation",
+        task: "break_glass_reason",
+        resourceType: "break_glass_reason",
+        decision: "document",
+        reason: parsed.data.reason,
         breakGlass: true,
         latencyMs: null,
-        metadata: { confirmationId: challenge.id },
+        metadata: {
+          reason: parsed.data.reason,
+          department: actor.department,
+        },
       },
     ]);
 
-    return NextResponse.json({
-      confirmationId: challenge.id,
-      nonce: challenge.nonce,
-      prompt: "Press the button on your CareKey to confirm emergency access.",
-    });
+    return NextResponse.json({ ok: true, reason: parsed.data.reason });
   } catch (error) {
     if (error instanceof SessionInvalidError) {
       return NextResponse.json({ error: error.message }, { status: 401 });

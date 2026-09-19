@@ -42,7 +42,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         intent,
         tool: "requestBreakGlass",
         requiresBreakGlass: true,
-        message: "State the reason for emergency access.",
+        message: "Confirm emergency access on your CareKey, then record the reason.",
       });
     }
 

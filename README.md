@@ -74,15 +74,17 @@ Same doctor. Same patient. Only the purpose changes:
 | Scheduling (reception)  | 6 fields: name, DOB, phone, address, insurance, appointment            | all clinical content                                |
 | Engineering debug       | 3 fields, medications reduced to `string(18) "W•••••••••"`              | identity, contact details, everything else          |
 
-Every withheld field stays on screen with the reason attached, because a field that
-silently vanishes teaches nobody anything.
+Withheld fields are never silently dropped. The chart says how many were withheld
+for the current purpose, and opening that line lists each one with the reason the
+engine gave — so the clinician can see what the purpose cost them, and ask for a
+different one.
 
 ## Break-glass
 
 1. The clinician asks for emergency access, by voice or button.
-2. They state a reason. It is recorded, not evaluated.
-3. They press the physical button on the Iris Key.
-4. A 15-minute expanded window opens. The event is flagged for review.
+2. They press the physical button on the Iris Key (or the demo path confirms server-side).
+3. A 15-minute expanded window opens immediately. The event is flagged for review.
+4. They record a reason afterward. It is stored for the patient and compliance; it is not evaluated to grant or deny access.
 
 Access is never refused. If the same clinician overrides repeatedly across
 departments, the dashboard raises it for compliance review — frequency changes
@@ -97,8 +99,37 @@ cp .env.example .env     # optional: works with no configuration at all
 pnpm dev
 ```
 
-Open <http://localhost:3000> and pick a simulated Iris Key, or plug in a board and
-click **Connect Iris Key over USB** (Chrome or Edge, for WebSerial).
+Open <http://localhost:3000>. Plug in a board and click **Connect** (Chrome or
+Edge, for WebSerial), or use one of the two demo keys, which run the same
+challenge-response path against a simulated device:
+
+| Demo key                 | Signs in as    | Lands on   |
+| ------------------------ | -------------- | ---------- |
+| Doctor - Dr. Maya Chen   | `IRIS-0042`    | `/doctor`  |
+| Patient - Maya Patel     | `IRIS-PATIENT-1048` | `/patient` |
+
+A second patient card, `IRIS-PATIENT-2210` (Daniel Osei), is seeded but not on
+the login screen; it is there for showing a live break-glass land in the
+timeline of the patient it was used on.
+
+There are four screens: `/login`, `/doctor` (the doctor's own patients, plus
+lookup for everyone else), `/doctor/patients/[id]` (the chart), and `/patient`
+(who opened my record). The compliance dashboard at `/security` is reachable by
+URL and is deliberately not in the navigation — it is the auditor's view, not the
+clinician's.
+
+### Doctor and patient are separate accounts
+
+The credential decides the surface, and there is no overlap. A doctor's session
+on `/patient` and a patient's session on `/doctor` both get a "this is not your
+view" panel, and the APIs behind them return `403` rather than relying on the UI
+to hide anything. `GET /api/patient/me/history` takes no patient id at all — the
+record is chosen by the credential, so there is no parameter to tamper with.
+
+The policy engine enforces the same thing independently: no rule in
+[policy-rules.ts](ui/src/server/iris/policy-rules.ts) grants the `patient` role
+anything, so a patient session that calls `/api/context` directly gets all
+twenty fragments denied and zero plaintext.
 
 With no `DATABASE_URL`, Iris runs against an in-memory store with the same
 interface, seeded identically. To use Tiger Data:
@@ -166,7 +197,8 @@ ui/src/server/iris/     policy engine, crypto, audit chain, context service, act
 ui/src/server/store/    Tiger adapter + in-memory adapter behind one interface
 ui/src/server/grok/     intent extraction, scoped generation, voice transport
 ui/src/server/db/       SQL migration: hypertable, continuous aggregate
-ui/src/app/             / provider / engineer / patient / security, plus route handlers
+ui/src/app/             login / doctor / doctor/patients/[id] / patient, plus route handlers
+ui/src/app/security/    compliance dashboard, reachable by URL, not in the navigation
 ui/src/lib/iris-key.ts  WebSerial transport
 firmware/iris-key/      ESP32-S3 sketch
 docs/                   demo script, agent-driven work log

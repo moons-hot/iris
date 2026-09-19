@@ -1,29 +1,32 @@
 # Iris demo script
 
-Six scenes, roughly four minutes. Every step below is exercised by
+Six scenes, roughly four minutes. The API path behind every step is exercised by
 `node ui/scripts/smoke.mjs <baseUrl>`, so if the smoke test is green the demo path
 is intact.
 
 ## Before you start
 
-- Two browser windows: **Iris Lens** on the presenting screen, **/security** on the
-  second screen so judges watch the counters move.
-- Both boards plugged in, or simulated keys ready as the fallback.
-- `pnpm dev` running. Confirm the header says Tiger Data if you are demoing the
-  Tiger path.
+- Two browser windows: **Iris** on the presenting screen, **/security** on the
+  second screen so judges watch the counters move. `/security` is reachable by URL
+  only — it is deliberately not in the navigation, because it is the auditor's
+  view and the clinician never opens it.
+- The board plugged in, or the two demo keys ready as the fallback. The login
+  screen offers one doctor and one patient; they are separate accounts and you
+  end one session to start the other.
+- `pnpm dev` running.
 - **Restart the server right before you present.** Rehearsals leave live
-  delegations and break-glass windows behind, and "6 active delegations" on the
-  engineer page is a question you do not want to answer on stage.
+  break-glass windows behind, and a purple banner counting down on a patient you
+  have not introduced yet is a question you do not want to answer on stage.
 - Have `/patient` open in a third tab for scene 6.
 
-## Scene 1 — The key is the login (30s)
+## Scene 1 — The key is the login (25s)
 
-Plug in `IRIS-0042`, click **Connect Iris Key over USB**.
+Plug in `IRIS-0042`, click **Connect**.
 
 > "There is no password. This board answers a challenge from the server with an
 > HMAC over a secret it never reveals. The browser only carries the message."
 
-The strip turns green. You land on the Iris Lens as Dr. Maya Chen.
+The strip turns green. You land on Dr. Maya Chen's patient list.
 
 **Then unplug the board.** The screen clears within eight seconds and logs
 `DEVICE_REMOVED`.
@@ -32,17 +35,30 @@ The strip turns green. You land on the Iris Lens as Dr. Maya Chen.
 
 Plug it back in.
 
-## Scene 2 — Same doctor, same patient, different purpose (60s)
+## Scene 2 — Your patients, and everyone else's (40s)
 
-Press **Voice** and say:
+Eight patients, each with the reason they are in today. Type `silva` — two rows.
+
+Now type `osei`.
+
+> "Daniel Osei is in this hospital. He is not Dr. Chen's patient, so she gets one
+> line: a record matched. No name, no date of birth, nothing. The match happened
+> on the server and the name never left it."
+
+Leave the row on screen; scene 5 comes back to it.
+
+## Scene 3 — Same doctor, same patient, different purpose (60s)
+
+Open **Maya Patel**. Press the mic and say:
 
 > "I'm evaluating Maya's chest pain, show me what matters."
 
 Grok extracts purpose `treatment`, task `chest_pain_evaluation`. Twelve fields
 open: vitals, allergies, medications, cardiac history, labs, the cardiology note.
-Eight stay locked, each with a reason.
+Eight stay closed.
 
-Point at the locked behavioural health note.
+Click **8 fields withheld for this purpose** and point at the behavioural health
+note.
 
 > "That is not hidden because of her role. It is hidden because of what she is
 > doing right now."
@@ -51,15 +67,15 @@ Now click **Research**. Nothing else changes.
 
 > "Same account. Same patient. Only the purpose changed."
 
-The name becomes `Patient P1048`, the birth date becomes `Age 45-50`, the diagnosis
-becomes a category. Contact details and notes drop out entirely.
+The name becomes `Patient P1048`, the birth date becomes `Age 45-50`, and the
+diagnosis carries a **Redacted** chip. Contact details and notes drop out entirely.
 
 > "Research does not get denied — it gets a reduced view. That is the difference
 > between a permission system and a purpose system."
 
-## Scene 3 — Conversation to action (40s)
+## Scene 4 — Conversation to action (35s)
 
-Say:
+Back on Treatment, say:
 
 > "Create a cardiology handoff for this patient."
 
@@ -68,21 +84,23 @@ fields included, eight excluded.
 
 > "The handoff physically cannot contain the fields this purpose never opened."
 
-## Scene 4 — Break glass (60s)
+## Scene 5 — Break glass (60s)
 
-Say:
+Go back to the list, search `osei` again, and click **Break glass** on the
+unnamed row. **Press the button on the board** (or confirm on the demo key).
 
-> "Break glass. The patient became unconscious after a suspected overdose and I
-> need the complete medication history."
+> "Access opens first. No cooldown, no second opinion — slowing this down is the
+> one failure mode we refuse to have."
 
-Iris asks for the reason, captures it, then waits.
+Then record the reason in the dialog:
 
-**Press the button on the board.** The strip pulses purple, the UI turns purple, and
-the behavioural health note opens along with the full medication list.
+> "Patient collapsed in the corridor, no chart and no next of kin."
 
-> "Iris did not decide whether the emergency was real. It gave her access, took the
-> reason, and made the access impossible to hide. Billing is still closed, because
-> an emergency is clinical, not financial."
+Click **Save reason**. The dialog closes.
+
+Daniel Osei's name appears on the row. Open his chart: the purple banner is
+pinned to the top, counting down from fifteen minutes, with the reason she gave
+printed next to it. Scroll — the banner stays.
 
 Point at the second screen: the override has already appeared, and the anomaly card
 now flags repeated overrides across departments.
@@ -90,27 +108,20 @@ now flags repeated overrides across departments.
 > "That is a review flag, not a block. Frequency changes review priority, never
 > availability."
 
-## Scene 5 — Scoped delegation (45s)
+## Scene 6 — The patient's view (35s)
 
-Click **Grant engineering view** — a 30-minute scope for the medication
-reconciliation fault.
+Click **End session**, then sign in with the **Patient - Maya Patel** demo key.
+The navigation changes: there is no patient list any more, only "My access".
 
-Swap to the second board, `IRIS-ENGINEER-07`, and go to **/engineer**. Open the
-scoped view.
+> "This is a different account, not a different tab. A doctor's key cannot open
+> this screen and this card cannot open a chart — and that is enforced in the
+> API, not just in the menu. The record is picked by the credential; there is no
+> patient id in the request to change."
 
-> "Alex is a real engineer with his own credential, and his role grants him nothing
-> on its own. He sees the system diagnostics, the encounter metadata, and the shape
-> of the medication rows — `string(18) "W•••••••••"`. Enough to find a duplicate-row
-> bug. Not enough to learn what she takes. It expires by itself in 30 minutes."
-
-## Scene 6 — The patient's view (30s)
-
-Open **/patient**.
-
-> "Same audit stream the security team sees, different language. No hashes, no field
-> names. Dr. Chen opened her record for emergency care at this time, and here is the
-> reason she gave. Thirteen fields were withheld from the research access, and her
-> name was only ever a study code there."
+> "Same audit stream the security team sees, different language. One sentence per
+> access, and the emergencies are at the top. Dr. Chen opened her record for
+> emergency care, and this is the reason she gave — word for word, because a
+> paraphrased reason is a changed reason."
 
 ## Close
 
@@ -123,10 +134,11 @@ Open **/patient**.
 
 ## If something breaks
 
-| Failure              | Fallback                                                             |
-| -------------------- | -------------------------------------------------------------------- |
-| Board not detected   | Use a simulated key on the home page; events are tagged `simulated`   |
-| Voice not working    | Type the same sentence into the Ask box — identical pipeline           |
-| Grok key dead        | Deterministic intent classifier and template summaries take over      |
-| Tiger unreachable    | Unset `DATABASE_URL`; the in-memory store is seeded identically       |
-| Dashboard looks empty| Check the store badge in the header, then re-run `pnpm db:seed`       |
+| Failure               | Fallback                                                            |
+| --------------------- | ------------------------------------------------------------------- |
+| Board not detected    | Use a demo key; events are tagged `simulated`                        |
+| Wrong account on screen | End the session and sign in with the other demo key                |
+| Voice not working     | Type the same sentence into the panel — identical pipeline            |
+| Grok key dead         | Deterministic intent classifier and template summaries take over     |
+| Tiger unreachable     | Unset `DATABASE_URL`; the in-memory store is seeded identically      |
+| Dashboard looks empty | Re-run `pnpm db:seed`, or unset `DATABASE_URL` and restart           |

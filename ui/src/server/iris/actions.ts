@@ -20,6 +20,7 @@ export async function createClinicalHandoff(input: {
   sessionId: string;
   patientId: string;
   specialty: string;
+  clinicianContext?: string;
 }): Promise<HandoffResult> {
   const store = getStore();
 
@@ -33,7 +34,12 @@ export async function createClinicalHandoff(input: {
     logEvents: false,
   });
 
-  const draft = await generateHandoff(lens, input.specialty);
+  const draft = await generateHandoff(
+    lens,
+    input.specialty,
+    input.clinicianContext,
+  );
+  const clinicianContext = input.clinicianContext?.trim();
   const included = lens.fragments
     .filter((fragment) => fragment.value !== null)
     .map((fragment) => fragment.label);
@@ -51,6 +57,7 @@ export async function createClinicalHandoff(input: {
       specialty: draft.specialty,
       sections: draft.sections,
       generatedBy: draft.source,
+      ...(clinicianContext ? { clinicianContext } : {}),
     },
     included,
     excluded,

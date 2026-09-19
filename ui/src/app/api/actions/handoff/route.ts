@@ -8,6 +8,7 @@ const bodySchema = z.object({
   sessionId: z.string().min(3),
   patientId: z.string().min(2),
   specialty: z.string().min(2).default("Cardiology"),
+  clinicianContext: z.string().max(8000).optional(),
 });
 
 export async function POST(request: Request): Promise<NextResponse> {

@@ -1,3 +1,4 @@
+import { templateSummary } from "@/server/grok/timeline";
 import type { AccessEvent, FragmentType } from "@/server/iris/types";
 import { getStore } from "@/server/store";
 
@@ -46,6 +47,8 @@ export interface TimelineEntry {
   withheld: number;
   kind: "normal" | "emergency" | "system";
   emergencyReason: string | null;
+  /** One plain sentence describing this access. Upgraded by Grok in the route. */
+  summary: string;
 }
 
 function friendlyCategories(value: unknown): string[] {
@@ -80,6 +83,16 @@ export async function buildPatientTimeline(
       .map((actor) => [actor.id, actor]),
   );
 
+  // Reasons often arrive on a follow-up event after access is already open.
+  const reasonBySession = new Map<string, string>();
+  for (const event of events) {
+    if (event.resourceType !== "break_glass_reason") continue;
+    const text = event.metadata.reason;
+    if (typeof text === "string" && text.length > 0 && event.sessionId) {
+      reasonBySession.set(event.sessionId, text);
+    }
+  }
+
   // Restriction events are companions to a read; fold them into the read itself.
   const withheldBySession = new Map<string, number>();
   for (const event of events) {
@@ -98,7 +111,7 @@ export async function buildPatientTimeline(
     const actor = event.actorId ? actorById.get(event.actorId) : undefined;
     const key = `${event.sessionId ?? ""}:${event.time.slice(0, 19)}`;
 
-    entries.push({
+    const facts = {
       id: event.eventId,
       time: event.time,
       actorName: actor?.fullName ?? "A member of hospital staff",
@@ -111,13 +124,18 @@ export async function buildPatientTimeline(
         : friendlyCategories(event.metadata.allowed),
       reduced: event.breakGlass ? [] : friendlyCategories(event.metadata.reduced),
       withheld: withheldBySession.get(key) ?? 0,
-      kind: event.breakGlass ? "emergency" : "normal",
+      kind: (event.breakGlass ? "emergency" : "normal") as TimelineEntry["kind"],
       // Only the stated reason, never the engine's own summary of the decision.
       // A patient reading "15 fields authorized, 5 restricted" learns nothing.
       emergencyReason: event.breakGlass
-        ? ((event.metadata.reason as string | undefined) ?? null)
+        ? ((event.metadata.reason as string | undefined) ??
+          (event.sessionId
+            ? (reasonBySession.get(event.sessionId) ?? null)
+            : null))
         : null,
-    });
+    };
+
+    entries.push({ ...facts, summary: templateSummary(facts) });
 
     if (entries.length >= limit) break;
   }

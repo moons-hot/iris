@@ -79,8 +79,10 @@ export interface HandoffDraft {
 export async function generateHandoff(
   lens: LensResult,
   specialty: string,
+  clinicianContext?: string,
 ): Promise<HandoffDraft> {
   const context = assertScoped(lens);
+  const notes = clinicianContext?.trim();
 
   if (grokConfigured()) {
     const raw = await grokChat(
@@ -91,11 +93,16 @@ export async function generateHandoff(
 
 Return JSON: {"sections":[{"heading":string,"body":string}]}
 Use 4-6 sections. Typical headings: Presenting complaint, Relevant history, Medications, Allergies, Relevant results, Recommended follow-up.
-Use only the supplied context. If something is absent, omit the section rather than inventing it.`,
+Use only the supplied context. If something is absent, omit the section rather than inventing it.
+When clinician notes are provided, weave them into the appropriate sections without contradicting authorized data.`,
         },
         {
           role: "user",
-          content: `Specialty: ${specialty}\nPurpose: ${lens.purposeLabel}\n\nAuthorized context:\n${contextBlock(context)}`,
+          content: `Specialty: ${specialty}\nPurpose: ${lens.purposeLabel}\n\n${
+            notes
+              ? `Clinician summary (spoken or typed — prioritize if consistent with authorized context):\n${notes}\n\n`
+              : ""
+          }Authorized context:\n${contextBlock(context)}`,
         },
       ],
       { json: true },
@@ -123,10 +130,15 @@ Use only the supplied context. If something is absent, omit the section rather t
 
   return {
     specialty,
-    sections: context.map((entry) => ({
-      heading: entry.label,
-      body: entry.value,
-    })),
+    sections: [
+      ...(notes
+        ? [{ heading: "Referring clinician summary", body: notes }]
+        : []),
+      ...context.map((entry) => ({
+        heading: entry.label,
+        body: entry.value,
+      })),
+    ],
     source: "template",
   };
 }

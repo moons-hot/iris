@@ -13,7 +13,8 @@ import { getStore } from "@/server/store";
 const bodySchema = z.object({
   sessionId: z.string().min(3),
   confirmationId: z.string().min(3),
-  reason: z.string().min(4),
+  /** Optional here so access opens first; the UI usually sends reason on /reason. */
+  reason: z.string().min(4).optional(),
   response: z.string().optional(),
   simulate: z.boolean().optional(),
 });
@@ -21,8 +22,8 @@ const bodySchema = z.object({
 const WINDOW_MINUTES = 15;
 
 /**
- * Step two: capture the stated reason, verify the physical button press, open a
- * time-limited emergency window.
+ * Step two: verify the physical button press and open a time-limited emergency
+ * window. The stated reason may arrive here (API clients) or on /reason after.
  *
  * Emergency access is granted to any authenticated clinician who asks for it. The
  * system's job is to record it and raise it for review, not to argue.
@@ -87,9 +88,12 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     const until = new Date(Date.now() + WINDOW_MINUTES * 60_000).toISOString();
+    const trimmedReason = parsed.data.reason?.trim();
+    const reasonText =
+      trimmedReason && trimmedReason.length >= 4 ? trimmedReason : null;
     await store.updateSession(session.id, {
       breakGlassUntil: until,
-      breakGlassReason: parsed.data.reason,
+      breakGlassReason: reasonText,
       purpose: "emergency_treatment",
       task: "emergency_context",
     });
@@ -118,11 +122,11 @@ export async function POST(request: Request): Promise<NextResponse> {
         task: "emergency_context",
         resourceType: "expanded_clinical_record",
         decision: "allow",
-        reason: parsed.data.reason,
+        reason: reasonText ?? "Emergency access granted",
         breakGlass: true,
         latencyMs: null,
         metadata: {
-          reason: parsed.data.reason,
+          ...(reasonText ? { reason: reasonText } : { pendingReason: true }),
           expiresAt: until,
           physicalConfirmation: true,
           simulated,
@@ -143,7 +147,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({
       lens,
       expiresAt: until,
-      reason: parsed.data.reason,
+      reason: reasonText,
       // Frequency drives review priority. It never blocks access.
       anomalyFlagged: overridesToday + 1 >= 3,
       overridesToday: overridesToday + 1,
