@@ -171,3 +171,8 @@ ui/src/lib/iris-key.ts  WebSerial transport
 firmware/iris-key/      ESP32-S3 sketch
 docs/                   demo script, agent-driven work log
 ```
+
+## Contributors
+
+Navin Narayanan, Akshat Goyal, Adit Swamy, and Sakthi Sadayappan. See
+[CONTRIBUTORS.md](CONTRIBUTORS.md).
