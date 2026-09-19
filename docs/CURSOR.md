@@ -51,6 +51,12 @@ Two habits did most of the work:
    scenes against a live server, so "did we break the demo" is one command and not a
    four-minute manual rehearsal.
 
+## Where the code lives
+
+Two remotes, same history: `origin` is Cursor Origin
+(`origin.cursor.com/navstar/iris`) and `github` is
+[github.com/navincodesalot/iris](https://github.com/navincodesalot/iris).
+
 ## Things the agent got wrong, and what fixed them
 
 - Built the in-memory seed at module load, which ran during `next build` and

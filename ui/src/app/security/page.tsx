@@ -201,7 +201,10 @@ export default function SecurityPage() {
                         </Badge>
                       </div>
                       <span className="text-xs text-muted-foreground">
-                        {event.reason ?? "Emergency access"}
+                        {/* The stated reason is the reviewable field; the
+                            engine's own summary is not. */}
+                        {(event.metadata.reason as string | undefined) ??
+                          "Emergency access"}
                       </span>
                     </div>
                   ))}

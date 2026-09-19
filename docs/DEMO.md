@@ -11,6 +11,9 @@ is intact.
 - Both boards plugged in, or simulated keys ready as the fallback.
 - `pnpm dev` running. Confirm the header says Tiger Data if you are demoing the
   Tiger path.
+- **Restart the server right before you present.** Rehearsals leave live
+  delegations and break-glass windows behind, and "6 active delegations" on the
+  engineer page is a question you do not want to answer on stage.
 - Have `/patient` open in a third tab for scene 6.
 
 ## Scene 1 — The key is the login (30s)

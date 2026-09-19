@@ -153,9 +153,10 @@ export default function PatientPage() {
                   <p className="text-xs font-medium text-muted-foreground">
                     Seen only in a reduced form
                   </p>
-                  <p className="text-sm">
-                    {entry.reduced.join(", ")} - for example an age range instead
-                    of your date of birth, or a study code instead of your name.
+                  <p className="text-sm">{entry.reduced.join(", ")}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Reduced means blurred on purpose - an age range instead of
+                    your date of birth, or a study code instead of your name.
                   </p>
                 </div>
               ) : null}

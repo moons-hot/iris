@@ -36,6 +36,16 @@ const RESOURCE_TYPES = [
 
 const PATIENTS = ["P1048", "P2210", "P3187"];
 
+/** Every override carries the reason stated at the time, including the backdated ones. */
+const EMERGENCY_REASONS = [
+  "Unresponsive on arrival, no next of kin present.",
+  "Acute chest pain with unknown cardiac history.",
+  "Seizure in the waiting room, patient cannot consent.",
+  "Anaphylaxis, need the full allergy record now.",
+  "Post-operative bleeding, confirming anticoagulation.",
+  "Suspected stroke, thrombolysis decision within the window.",
+];
+
 function pickPurpose(random: () => number): Purpose {
   const roll = random();
   let cumulative = 0;
@@ -94,7 +104,14 @@ export function buildBackdatedEvents(count = 4800): AccessEventInput[] {
       reason: decision === "allow" ? null : "Outside the stated purpose.",
       breakGlass,
       latencyMs: Math.round(8 + random() * 60),
-      metadata: { synthetic: true },
+      metadata: breakGlass
+        ? {
+            synthetic: true,
+            reason:
+              EMERGENCY_REASONS[Math.floor(random() * EMERGENCY_REASONS.length)] ??
+              EMERGENCY_REASONS[0],
+          }
+        : { synthetic: true },
     });
   }
 
@@ -108,14 +125,29 @@ export function buildBackdatedEvents(count = 4800): AccessEventInput[] {
  * several departments. Iris flags this for review; it never blocks the override.
  */
 function chenAnomalyEvents(): AccessEventInput[] {
-  const departments = [
-    "Emergency",
-    "Intensive Care",
-    "Cardiology",
-    "Emergency",
-    "Intensive Care",
+  // Each override carries the reason the clinician stated at the time. That is
+  // the field a compliance reviewer reads, so the seeded ones have to be real
+  // sentences rather than a repeated placeholder.
+  const overrides = [
+    { department: "Emergency", reason: "Unresponsive on arrival, no next of kin present." },
+    {
+      department: "Intensive Care",
+      reason: "Sudden decompensation overnight, need full medication history.",
+    },
+    {
+      department: "Cardiology",
+      reason: "Arrest during transfer, confirming anticoagulation before thrombolysis.",
+    },
+    {
+      department: "Emergency",
+      reason: "Suspected overdose, substance unknown, patient cannot consent.",
+    },
+    {
+      department: "Intensive Care",
+      reason: "Escalating sedation requirement, checking behavioural health history.",
+    },
   ];
-  return departments.map((department, index) => ({
+  return overrides.map(({ department, reason }, index) => ({
     time: new Date(Date.now() - (index + 1) * 55 * 60_000).toISOString(),
     actorId: "DOC-001",
     actorRole: "physician",
@@ -130,6 +162,6 @@ function chenAnomalyEvents(): AccessEventInput[] {
     reason: "Break-glass emergency access",
     breakGlass: true,
     latencyMs: 24,
-    metadata: { synthetic: true, department },
+    metadata: { synthetic: true, department, reason },
   }));
 }

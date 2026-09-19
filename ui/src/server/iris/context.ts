@@ -228,6 +228,11 @@ export async function buildLens(
           reduced: reducedTypes,
           ruleId: decision.ruleId,
           requestedPurpose: decision.purpose,
+          // Carried on every read in the window so the patient sees the same
+          // stated reason on each one, not only on the confirmation event.
+          ...(isBreakGlass && session.breakGlassReason
+            ? { reason: session.breakGlassReason }
+            : {}),
         },
       },
     ];

@@ -112,8 +112,10 @@ export async function buildPatientTimeline(
       reduced: event.breakGlass ? [] : friendlyCategories(event.metadata.reduced),
       withheld: withheldBySession.get(key) ?? 0,
       kind: event.breakGlass ? "emergency" : "normal",
+      // Only the stated reason, never the engine's own summary of the decision.
+      // A patient reading "15 fields authorized, 5 restricted" learns nothing.
       emergencyReason: event.breakGlass
-        ? ((event.metadata.reason as string | undefined) ?? event.reason)
+        ? ((event.metadata.reason as string | undefined) ?? null)
         : null,
     });
 
