@@ -1,40 +1,39 @@
-import "@/styles/globals.css";
+import type { Metadata } from "next";
+import { Instrument_Serif, Inter } from "next/font/google";
+import Script from "next/script";
 
-import { type Metadata } from "next";
-import { Geist } from "next/font/google";
+import "../styles/globals.css";
 
-import { IrisNav } from "@/components/iris/iris-nav";
-import { IrisSessionProvider } from "@/components/iris/session-provider";
-import { Toaster } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+});
+
+const instrument = Instrument_Serif({
+  subsets: ["latin"],
+  weight: "400",
+  variable: "--font-instrument",
+});
 
 export const metadata: Metadata = {
-  title: "Iris - purpose-bound patient context",
-  description:
-    "Hardware-backed authentication, purpose-bound clinical views, and a tamper-evident access trail.",
-  icons: [{ rel: "icon", url: "/favicon.ico" }],
+  title: "Iris | Deep-space health investigation",
+  description: "Onboard health investigation for long-duration spaceflight.",
 };
-
-const geist = Geist({
-  subsets: ["latin"],
-  variable: "--font-geist-sans",
-});
 
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${geist.variable} dark`}>
-      {/* suppressHydrationWarning: browser extensions (e.g. ColorZilla) inject
-          attributes like cz-shortcut-listen onto <body> before React hydrates. */}
-      <body className="min-h-screen bg-background" suppressHydrationWarning>
-        <TooltipProvider>
-          <IrisSessionProvider>
-            <IrisNav />
-            {children}
-            <Toaster position="top-right" />
-          </IrisSessionProvider>
-        </TooltipProvider>
+    <html lang="en" suppressHydrationWarning>
+      <body
+        className={`${inter.variable} ${instrument.variable} font-sans antialiased`}
+        suppressHydrationWarning
+      >
+        <Script id="iris-theme" strategy="beforeInteractive">
+          {`(function(){try{var t=localStorage.getItem("iris-theme");if(t!=="light"&&t!=="dark"){t=window.matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}document.documentElement.classList.toggle("dark",t==="dark");document.documentElement.style.colorScheme=t}catch(e){}})();`}
+        </Script>
+        <div className="iris-stars" aria-hidden="true" />
+        <div className="iris-app">{children}</div>
       </body>
     </html>
   );

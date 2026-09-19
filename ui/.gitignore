@@ -12,6 +12,7 @@
 /prisma/db.sqlite
 /prisma/db.sqlite-journal
 db.sqlite
+.iris-onboard.db
 
 # next.js
 /.next/
@@ -44,4 +45,3 @@ yarn-error.log*
 
 # idea files
 .idea
-.vercel

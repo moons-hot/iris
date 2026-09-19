@@ -1,28 +1,34 @@
-import { NextResponse } from "next/server";
-import { z } from "zod";
+export const runtime = "nodejs";
 
-import { grokConfigured, grokSpeak } from "@/server/grok/client";
+export async function POST(request: Request) {
+  const body = (await request.json()) as { text?: string };
+  if (!body.text?.trim())
+    return Response.json({ error: "text is required" }, { status: 400 });
 
-const bodySchema = z.object({
-  // Spoken prompts only, never patient content.
-  text: z.string().min(2).max(300),
-});
-
-export async function POST(request: Request): Promise<Response> {
-  const parsed = bodySchema.safeParse(await request.json());
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
-  }
-  if (!grokConfigured()) {
-    return NextResponse.json({ error: "Not configured" }, { status: 501 });
+  if (!process.env.XAI_API_KEY) {
+    return Response.json({ text: body.text, demoFallback: true });
   }
 
-  const audio = await grokSpeak(parsed.data.text);
-  if (!audio) {
-    return NextResponse.json({ error: "Speech failed" }, { status: 502 });
-  }
-
-  return new Response(audio, {
-    headers: { "content-type": "audio/mpeg", "cache-control": "no-store" },
+  const response = await fetch("https://api.x.ai/v1/audio/speech", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.XAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "grok-voice",
+      input: body.text,
+      voice: "ara",
+    }),
+  });
+  if (!response.ok)
+    return Response.json(
+      { error: "Grok Voice speech failed" },
+      { status: 502 },
+    );
+  return new Response(response.body, {
+    headers: {
+      "Content-Type": response.headers.get("Content-Type") ?? "audio/mpeg",
+    },
   });
 }

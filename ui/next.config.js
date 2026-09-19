@@ -5,7 +5,7 @@
 
 /** @type {import("next").NextConfig} */
 const config = {
-  serverExternalPackages: ["snowflake-sdk"],
+  serverExternalPackages: ["better-sqlite3"],
 };
 
 export default config;
