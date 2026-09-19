@@ -1,3 +1,11 @@
+import { compareToPersonalBaseline } from "@/lib/baseline/compare";
+import type { PersonalBaselineStatus } from "@/lib/baseline/compare";
+import {
+  isWithinPopulation,
+  personalBaselineStatusLabel,
+  populationContextLabel,
+} from "@/lib/baseline/labels";
+import type { MetricMissionTrend } from "@/lib/baseline/trends";
 import type {
   BaselineMetric,
   CrewMember,
@@ -38,6 +46,11 @@ export type VitalCardModel = {
   personalMax: number | null;
   populationLow: number;
   populationHigh: number;
+  personalStatus: PersonalBaselineStatus | null;
+  isSignificantDeviation: boolean;
+  statusLabel: string | null;
+  populationNote: string | null;
+  missionTrend: MetricMissionTrend | null;
 };
 
 export type EnvStatusBadge = {
@@ -80,12 +93,43 @@ export function formatMetricValue(value: number, metricKey: string): string {
 export function buildVitalCards(
   baselines: readonly BaselineMetric[],
   measurements: readonly Measurement[],
+  options: {
+    crewId: string;
+    missionTrends?: readonly MetricMissionTrend[];
+  },
 ): VitalCardModel[] {
   const cards: VitalCardModel[] = [];
   for (const metricKey of VITAL_METRIC_KEYS) {
     const baseline = baselines.find((entry) => entry.metricKey === metricKey);
     if (!baseline) continue;
     const latest = latestMeasurement(measurements, metricKey);
+    const missionTrend =
+      options.missionTrends?.find((t) => t.metricKey === metricKey) ?? null;
+
+    let personalStatus: PersonalBaselineStatus | null = null;
+    let isSignificantDeviation = false;
+    let statusLabel: string | null = null;
+    let populationNote: string | null = null;
+
+    if (latest) {
+      const comparison = compareToPersonalBaseline(latest.value, baseline);
+      personalStatus = comparison.status;
+      isSignificantDeviation = comparison.isSignificant;
+      statusLabel = personalBaselineStatusLabel(
+        options.crewId,
+        comparison,
+        metricLabel(metricKey),
+      );
+      populationNote = populationContextLabel(
+        options.crewId,
+        isWithinPopulation(
+          latest.value,
+          baseline.populationLow,
+          baseline.populationHigh,
+        ),
+      );
+    }
+
     cards.push({
       metricKey,
       label: metricLabel(metricKey),
@@ -97,6 +141,11 @@ export function buildVitalCards(
       personalMax: baseline.personalMax,
       populationLow: baseline.populationLow,
       populationHigh: baseline.populationHigh,
+      personalStatus,
+      isSignificantDeviation,
+      statusLabel,
+      populationNote,
+      missionTrend,
     });
   }
   return cards;

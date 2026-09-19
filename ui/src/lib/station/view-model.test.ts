@@ -44,7 +44,9 @@ describe("station vitals for A02", () => {
   it("shows personal HR baseline near 62 and population band 60–100", () => {
     const data = getCrewById("A02");
     expect(data).not.toBeNull();
-    const cards = buildVitalCards(data!.baselines, data!.recentMeasurements);
+    const cards = buildVitalCards(data!.baselines, data!.recentMeasurements, {
+      crewId: "A02",
+    });
     const hr = cards.find((card) => card.metricKey === "heart_rate");
 
     expect(hr?.personalMean).toBe(62);
@@ -56,7 +58,9 @@ describe("station vitals for A02", () => {
 
   it("includes latest SpO2 and temperature from seed", () => {
     const data = getCrewById("A02");
-    const cards = buildVitalCards(data!.baselines, data!.recentMeasurements);
+    const cards = buildVitalCards(data!.baselines, data!.recentMeasurements, {
+      crewId: "A02",
+    });
     expect(cards.map((card) => card.metricKey)).toEqual([
       "heart_rate",
       "spo2",

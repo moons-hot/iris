@@ -1,6 +1,6 @@
 ---
 name: MED-1 Implementation
-overview: "Build MED-1 incrementally inside the existing [ui/](ui/) Next.js app: in-memory SQLite mission state, a deterministic investigation engine, spacecraft UI, crew escalation, Grok Voice at the station, then autonomous mode and ground handoff—each step shippable and demo-testable on its own."
+overview: "Three-layer MED-1 from idea.md: ESP32 physical medical station (NFC + sensors + audio I/O), Next.js mission health system (baselines + investigation engine), Grok Voice/API as investigation orchestrator—fed by specific NASA OSDR/EDA/RadLab evidence caches. Not a health summarizer."
 todos:
     - id: step-1-db
       content: SQLite schema, seed Mars crew/env data, mission + crew API routes
@@ -10,52 +10,68 @@ todos:
       status: pending
     - id: step-3-investigation
       content: Deterministic investigation state machine + APIs + station action loop
-      status: pending
+      status: completed
     - id: step-4-baseline
       content: Personal baseline comparison and deviation evidence labeling
       status: pending
     - id: step-5-evidence
-      content: Spacecraft, space-environment JSON, and historical evidence board
-      status: pending
+      content: "Named NASA caches: OSDR Inspiration4, EDA cabin, RadLab radiation + evidence board"
+      status: completed
     - id: step-6-crew-escalation
       content: Multi-crew symptom linking and shared-event UI transition
       status: pending
-    - id: step-7-grok-voice
-      content: Grok Voice session route + push-to-talk wired to investigation APIs
+    - id: step-7-esp32
+      content: ESP32 firmware — NFC ID, sensor procedures, mic/speaker bridge to MED-1 APIs
       status: pending
-    - id: step-8-autonomous-handoff
+    - id: step-8-grok-voice
+      content: Grok Voice + tool calling as investigation orchestrator (ESP32 + station)
+      status: pending
+    - id: step-9-autonomous-handoff
       content: Link toggle, sync queue, ground medical event package export
       status: pending
 isProject: false
 ---
 
-# ndcsMED-1 step-by-step implementation plan
+# MED-1 step-by-step implementation plan
+
+**Source of truth for product intent:** [idea.md](idea.md) — three layers (ESP32 station → mission health system → Grok investigation). Cursor + Grok + real NASA space data are track requirements, not decoration.
 
 ## Stack and architecture (locked for hackathon)
 
-| Layer                 | Choice                                                                                                                                                                   |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| UI                    | Next.js 16 App Router in [ui/src/app/](ui/src/app/) + Tailwind (already present)                                                                                         |
-| Onboard “computer”    | Server-only modules + Route Handlers under `ui/src/app/api/`                                                                                                             |
-| Persistence           | **SQLite in-memory** via `better-sqlite3` (singleton in dev so HMR does not wipe state unexpectedly—or explicit `globalThis` cache); schema + seed in `ui/src/lib/db/`   |
-| AI (judging)          | **Grok Voice API** as primary demo surface; typed chat as fallback when mic/API fails                                                                                    |
-| NASA / space evidence | **Curated JSON cache** shipped with the repo (5–15 snippets tagged by topic: headache, CO2, radiation, cardiovascular adaptation)—not live OSDR scraping during the demo |
+| Layer                           | Choice                                                                                                                                             |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Layer 1 — Physical station      | **ESP32** under [firmware/](firmware/): NFC crew ID, vitals sensors (or mock), display prompts, **mic/speaker** audio path into Grok Voice / MED-1 |
+| Layer 2 — Mission health system | Next.js App Router in [ui/](ui/) + in-memory SQLite (`better-sqlite3`)                                                                             |
+| Layer 3 — Investigation AI      | **Grok Voice + Grok API tool calling** (orchestrates; engine + DB remain source of truth)                                                          |
+| NASA / space evidence           | **Curated real-source caches** with explicit citations (OSDR / EDA / RadLab)—see Step 5; optional live RadLab fetch if time                        |
 
 ```mermaid
-flowchart LR
-  subgraph station [MedicalStation_UI]
-    Voice[Grok_Voice]
-    Panel[Investigation_Panel]
+flowchart TB
+  subgraph layer1 [Layer1_ESP32]
+    NFC[NFC_crew_ID]
+    Sensors[Vitals_sensors]
+    Audio[Mic_Speaker]
+    Disp[Procedure_display]
   end
-  subgraph onboard [Onboard_Next_Server]
-    API[API_Routes]
-    Engine[Investigation_Engine]
+  subgraph layer2 [Layer2_Next_Onboard]
+    API[Station_and_mission_APIs]
+    Engine[Investigation_engine]
+    Evidence[OSDR_EDA_RadLab_caches]
     DB[(SQLite_memory)]
   end
-  Voice --> API
-  Panel --> API
+  subgraph layer3 [Layer3_Grok]
+    Voice[Grok_Voice]
+    Tools[Tool_calling]
+  end
+  NFC --> API
+  Sensors --> API
+  Audio --> Voice
+  Voice --> Tools
+  Tools --> API
   API --> Engine
+  Engine --> Evidence
   Engine --> DB
+  Disp --> Sensors
 ```
 
 **Product guardrails baked into code from step 3 onward:** every user-facing string and LLM system prompt enforces _investigation not diagnosis_; evidence items carry `kind`: `observation` | `personal_deviation` | `correlation` | `historical_context`.
@@ -95,17 +111,17 @@ flowchart LR
 
 - Run shadcn init in `ui/` if `components.json` is missing (`pnpm dlx shadcn@latest init`) — default style, **dark** class on `html` or `layout` for station routes.
 - Add only the components needed (keep the tree small):
-  - `card`, `badge`, `select`, `separator`, `skeleton` (loading)
-  - Optional: `alert` for a single non-diagnostic disclaimer line (“Investigation support — not a diagnosis”)
+    - `card`, `badge`, `select`, `separator`, `skeleton` (loading)
+    - Optional: `alert` for a single non-diagnostic disclaimer line (“Investigation support — not a diagnosis”)
 
 **Layout** — `ui/src/app/station/page.tsx` (+ `ui/src/app/station/layout.tsx` if useful for dark shell)
 
-| Zone | Content | shadcn building blocks |
-|------|---------|-------------------------|
-| **Top bar** | MED-1 title, mission name, **Mission day 180**, **Earth comm ~18 min** one-way, link status `connected` (read-only for now) | `Card` or plain header + `Badge` variants |
-| **Crew** | **Select** crew A01–A04 (default A02 for demo); show name + role | `Select` + `Card` |
-| **Vitals** | For selected crew: last known HR / SpO2 / temp + **personal baseline** (mean or min–max) vs **population range**—short labels, no diagnosis copy | 2–3 `Card`s in a responsive grid |
-| **Cabin environment** | Compact list from `/api/environment`: metric, value, unit, `Badge` **nominal** vs **above/below nominal** (CO₂ should show as non-nominal) | `Card` + `Badge`; one line disclaimer that anomaly ≠ cause |
+| Zone                  | Content                                                                                                                                          | shadcn building blocks                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
+| **Top bar**           | MED-1 title, mission name, **Mission day 180**, **Earth comm ~18 min** one-way, link status `connected` (read-only for now)                      | `Card` or plain header + `Badge` variants                  |
+| **Crew**              | **Select** crew A01–A04 (default A02 for demo); show name + role                                                                                 | `Select` + `Card`                                          |
+| **Vitals**            | For selected crew: last known HR / SpO2 / temp + **personal baseline** (mean or min–max) vs **population range**—short labels, no diagnosis copy | 2–3 `Card`s in a responsive grid                           |
+| **Cabin environment** | Compact list from `/api/environment`: metric, value, unit, `Badge` **nominal** vs **above/below nominal** (CO₂ should show as non-nominal)       | `Card` + `Badge`; one line disclaimer that anomaly ≠ cause |
 
 **Data wiring**
 
@@ -119,7 +135,7 @@ flowchart LR
 - `ui/src/components/station/crew-selector.tsx`
 - `ui/src/components/station/vitals-summary.tsx`
 - `ui/src/components/station/environment-strip.tsx`
-- Reuse `ui/src/components/ui/*` from shadcn; follow [shadcn skill](C:\Users\nanna\.agents\skills\shadcn\SKILL.md) (semantic colors, `Card` composition, `Badge` for status).
+- Reuse `ui/src/components/ui/*` from shadcn; follow [shadcn skill](C:\Users\nanna.agents\skills\shadcn\SKILL.md) (semantic colors, `Card` composition, `Badge` for status).
 
 **Explicitly out of scope for Step 2** (defer to later steps)
 
@@ -146,7 +162,7 @@ flowchart LR
 
 ---
 
-## Step 3 — Investigation engine v1 (deterministic loop)
+## Step 3 — Investigation engine v1 (deterministic loop) (done)
 
 **Build**
 
@@ -176,7 +192,7 @@ flowchart LR
 
 ---
 
-## Step 4 — Personal baseline & mission-phase awareness
+## Step 4 — Personal baseline & mission-phase awareness (done)
 
 **Build**
 
@@ -196,135 +212,165 @@ flowchart LR
 
 ---
 
-## Step 5 — Spacecraft + space-environment + NASA historical evidence layers
+## Step 5 — NASA evidence layers (named sources, not vague “JSON”) (done)
 
-**Build**
+**Product goal (from idea.md §4–8):** Judges must see **three distinct NASA-backed categories** entering the investigation—not a summarizer inventing context.
 
-- Extend `check_environment` to attach structured evidence: spacecraft readings + **cached space weather / radiation summary** for mission day (static JSON in `ui/src/data/space-environment.json`).
-- `historical_evidence` table already seeded; retrieval in `ui/src/lib/evidence/retrieve.ts` by **tags** (symptom + physiological category + env anomaly type)—keyword/tag match is enough for hackathon.
-- UI: **Evidence board** grouped into Astronaut | Spacecraft | Space environment | Historical context, each card labeled with evidence `kind`.
+### Exact data we will ship (hackathon-safe caches + citations)
 
-**You can test**
+All files under `ui/src/data/` with a `CITATIONS.md` listing source URLs / OSDR study IDs. Prefer **curated extracts** pulled once from public NASA pages/APIs so the demo works offline on the “spacecraft”; optional live RadLab call behind a flag.
 
-- Complete A02 individual investigation → board shows 4 layers.
-- Historical cards say “Previous spaceflight research documented…” not “this astronaut has X.”
+| File                                  | Source (idea.md)                                                                                                       | What we store                                                                                                                                                                                                                                                                                         | How MED-1 uses it                                                                                                                 |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `osdr-inspiration4.json`              | **NASA OSDR — Inspiration4 human data**                                                                                | Summarized biomarker/context cards from **OSD-575** (pre/post blood-serum metabolic / immune-cardiovascular markers) and **OSD-656** (urine inflammatory / cytokine proteins). Fields: `study_id`, `title`, `population`, `measurement_category`, `observed_change_summary`, `tags[]`, `citation_url` | Tag match on investigation context (`cardiovascular`, `immune`, `headache`, `inflammation`) → evidence `kind: historical_context` |
+| `osdr-spaceflight-relationships.json` | OSDR-documented **spaceflight → pathway** relationships (idea.md §9)                                                   | Explicit edges: `spaceflight → cardiovascular_changes`, `→ immune_changes`, `→ bone_loss`, `→ visual_changes`, etc. Each edge: `source_study`, `model` (`human` \| `animal` \| `mixed`), `confidence_note`                                                                                            | Context only: “Prior spaceflight research has documented…” Never “caused this astronaut’s HR”                                     |
+| `eda-cabin-telemetry.json`            | **OSDR Environmental Data Application (EDA)** — ISS cabin env                                                          | Time-series **snippets** for CO₂, cabin temp, humidity (and notes on hardware env). Normalized to mission-day windows for demo                                                                                                                                                                        | Compare vs live cabin anomaly (already seeded CO₂ high); attach spacecraft layer evidence                                         |
+| `radlab-radiation.json`               | **NASA RadLab API** fields: timestamp, absorbed dose rate, dose-equivalent rate, particle flux, spacecraft, instrument | Cached 24–48h-style window labeled for “Mars transit simulation / ISS proxy”; include `fetched_from` and sample field names matching RadLab                                                                                                                                                           | Space-environment layer: “radiation elevated vs recent mission baseline” as **correlation lead**, not causation                   |
+| (optional) live `GET`                 | RadLab programmatic API                                                                                                | If `RADLAB_LIVE=1`, refresh cache at boot once                                                                                                                                                                                                                                                        | Same schema as file above                                                                                                         |
 
-**Visible difference:** satisfies **Make it Legendary** (real space context) without overclaiming causality.
+**Explicit non-claims (idea.md §5, §19):** We do **not** train a model on OSDR. We do **not** say radiation caused elevated HR. Animal/model-organism evidence is labeled as such.
+
+### Code to build
+
+- `ui/src/lib/evidence/retrieve.ts` — score by tags (symptoms + vital category + env anomaly type + radiation status).
+- Extend investigation env/space steps to attach **Spacecraft | Space environment | Historical** evidence with `kind` labels.
+- UI: **Evidence board** on station investigation panel — four columns/sections: Astronaut | Spacecraft | Space | Historical.
+
+### You can test
+
+1. Run A02 investigation to env/space stage → board shows ≥1 card in each of spacecraft, space (RadLab), historical (OSD-575 or relationship edge).
+2. Open `CITATIONS.md` / JSON `citation_url` — judge-visible NASA provenance.
+3. Copy audit: no “caused by radiation/CO₂”.
+
+**Visible difference:** Make-it-Legendary with **named** OSDR/EDA/RadLab artifacts, not anonymous filler text.
 
 ---
 
 ## Step 6 — Crew-wide escalation (demo climax)
 
-**Build**
+Unchanged in spirit ([idea.md](idea.md) §12): when ≥2/4 crew share overlapping signals (headache / status telemetry) within a window → `scope: crew`, banner **POSSIBLE SHARED CREW EVENT**, prioritize CO₂ / cabin / radiation.
 
-- `ui/src/lib/investigation/crew-escalation.ts`:
-    - Within rolling window (e.g. 48h mission time), if **≥2 crew** report overlapping symptoms (headache), merge or link investigations under a `crew_investigation_id`, set `scope: crew`, bump priority on env evidence.
-- APIs: creating investigation for A03 with headache auto-updates A02’s open investigation.
-- UI state change: banner **“POSSIBLE SHARED CREW EVENT — 2/4 crew”**, reprioritized env section, individual narratives preserved underneath.
-
-**You can test**
-
-- Run A02 flow partially or fully → switch to **A03**, report “headache too” → banner + linked evidence counts **2/4**.
-- Confirm individual deviations (A02 HR) still visible; env anomaly surfaced as **shared lead**.
-
-**Visible difference:** the “MED-1 reasons across the crew” moment works live.
+**You can test:** A02 investigation active → A03 stream/status also flags headache-class signal → 2/4 banner + shared env lead.
 
 ---
 
-## Step 7 — Grok Voice at the medical station
+## Step 7 — ESP32 firmware (physical medical station) — was missing
 
-**Build**
+**This is Layer 1 from idea.md.** Without it, MED-1 collapses into a web summarizer. Repo already has [firmware/](firmware/).
 
-- Env: `XAI_API_KEY` in `.env` (document in [ui/.env.example](ui/.env.example)).
-- `ui/src/app/api/voice/session/route.ts` — server-side Grok Voice session orchestration (keep keys off client).
-- Station UX:
-    - **Push-to-talk** or hold-to-speak → transcript appears in investigation thread.
-    - Grok used to: (1) **paraphrase back** investigation-safe language, (2) extract structured intents (`report_symptoms`, `confirm_action`, `read_measurement_value`) sent to existing investigation APIs—**engine remains source of truth**.
-- System prompt: explicit refusal to diagnose; must call structured “next step” aligned with engine recommendations.
-- Fallback: if Voice fails, typed input still works (required for judging reliability).
+### What the ESP32 does (demo script §13)
 
-**You can test**
+1. **NFC badge** → identifies crew (`A02`) → `POST /api/station/identify { crewId }` (or serial/WiFi to Next).
+2. **Display** shows procedure prompts: “RESTING HEART RATE — remain still — place finger on sensor.”
+3. **Sensors** (real or stubbed): HR / SpO₂ / temp → `POST /api/station/measurement`.
+4. **Audio I/O:** mic captures speech; speaker plays Grok/MED-1 replies (or ESP32 bridges audio to the Next/Grok Voice session). Point: astronaut **talks to the station**, not a laptop form.
+5. Receives **procedure commands** from MED-1/Grok tools: `start_measurement_procedure(metric)`.
 
-- Speak: “I’m A02, dizzy with a headache” → same investigation as Step 3 typed path.
-- Speak HR value or press UI button → deviation appears with voice readout optional.
-
-**Visible difference:** hackathon Grok requirement is **center stage** in the demo script.
-
----
-
-## Step 8 — Autonomous mode, sync queue, and ground medical packet
-
-**Build**
-
-- `mission_state.link_status`: `connected | autonomous` (toggle in station header for demo).
-- When autonomous:
-    - Banner: **EARTH LINK LOST — AUTONOMOUS MEDICAL MODE**
-    - Voice/text and investigation loop **continue**; Grok calls skipped or queued locally.
-    - `sync_queue` table stores events with payload.
-- On reconnect: `POST /api/sync/push` marks queue flushed; optional “deep analysis” stub message.
-- `GET /api/investigations/[id]/handoff` returns **Ground Medical Event Package** JSON (and printable Markdown view at `/station/handoff/[id]`):
-    - crew involved, symptoms, personal deviations, measurements, crew signal, env + space + historical sections, completed actions, open questions.
-- Polish for judging: 3-minute **scripted demo path** page or `?demo=1` checklist; reset endpoint.
-
-**You can test**
-
-- Toggle link off mid-investigation → finish measurements → queue grows.
-- Toggle on → handoff packet complete enough that a clinician could orient in 30 seconds.
-- Full run: A02 voice → HR deviation → env → A03 headache → crew escalation → handoff export.
-
-**Visible difference:** autonomous spacecraft system first, Earth augmentation second—matches your spec’s closing beat.
-
----
-
-## Suggested folder map (after all steps)
+### Firmware layout (proposed)
 
 ```
+firmware/
+  README.md                 # flash, WiFi, pin map, demo mode
+  platformio.ini or Arduino
+  src/
+    main.cpp
+    nfc.cpp / nfc.h
+    sensors.cpp             # HR/SpO2/temp or DEMO_MOCK_SENSORS
+    display.cpp
+    audio_io.cpp            # I2S mic + amp, or BLE/WebSocket audio bridge
+    med1_client.cpp         # HTTP(S) to Next.js station APIs
+```
+
+### Backend hooks (Next.js)
+
+- `POST /api/station/identify`
+- `POST /api/station/measurement`
+- `GET /api/station/procedure` — current recommended next step for active crew
+- WebSocket or SSE optional for display push (“show HR procedure”)
+
+### Demo fallback
+
+If hardware flaky on stage: **firmware DEMO_MOCK** still walks NFC → procedure → measurement → same APIs; browser station mirrors display. Product story remains “physical kit + onboard computer,” not “dashboard only.”
+
+### You can test
+
+1. Flash ESP32 (or serial mock) → NFC/simulate A02 → station UI shows identified crew.
+2. Firmware completes HR procedure → investigation gets biosensor/procedure measurement without typing numbers.
+3. Speak into mic path (or mock) → transcript/event appears in investigation log.
+
+**Visible difference:** Judges see a **medical station**, not only a website.
+
+---
+
+## Step 8 — Grok Voice + tool calling (investigation orchestrator)
+
+**Not** “push-to-talk on a laptop as the product.” Grok is Layer 3 ([idea.md](idea.md) §14):
+
+- **Grok Voice:** symptom/context the sensors can’t measure; guide procedures; speak results.
+- **Grok tools** (engine enforces safety / no diagnosis):
+    - `get_astronaut_baseline`, `get_health_history`
+    - `read_sensor` / `start_measurement_procedure` (ESP32)
+    - `get_spacecraft_telemetry`, `get_radiation_data`, `get_spaceflight_evidence`
+    - `create_ground_handoff`
+- Browser voice = backup if ESP32 audio fails; **ESP32 is primary demo path**.
+- Typed fallback last resort for judging reliability.
+
+**You can test:** NFC A02 → voice “dizzy and headache” → Grok opens investigation → tool requests HR → ESP32 display/procedure → deviation → tools pull EDA/RadLab/OSDR evidence.
+
+---
+
+## Step 9 — Autonomous mode + ground medical handoff
+
+Same as former Step 8: Earth link lost → local investigation continues → sync queue → structured handoff packet (idea.md §13 closing).
+
+---
+
+## Suggested folder map (after remaining steps)
+
+```
+firmware/                   # ESP32 Layer 1
 ui/src/
-  app/
-    station/page.tsx
-    station/handoff/[id]/page.tsx
-    api/mission/...
-    api/investigations/...
-    api/voice/session/...
-    api/sync/...
-  lib/
-    db/
-    investigation/
-    baseline/
-    evidence/
+  app/station/...
+  app/api/station/...       # identify, measurement, procedure
+  app/api/voice/...
+  lib/evidence/retrieve.ts
   data/
-    historical-evidence.json
-    space-environment.json
-  components/station/
-  components/ui/          # shadcn primitives
+    CITATIONS.md
+    osdr-inspiration4.json
+    osdr-spaceflight-relationships.json
+    eda-cabin-telemetry.json
+    radlab-radiation.json
 ```
 
 ---
 
-## Demo script alignment (what to rehearse)
+## Demo script alignment (idea.md §13)
 
-1. Identify **A02** → voice report dizziness + headache.
-2. MED-1 requests HR → **84** → personal deviation; other vitals normal.
-3. Environment check → abnormal cabin reading + historical context cards.
-4. **A03** reports headache → **2/4 crew** escalation.
-5. Toggle **autonomous** briefly → continue checklist → restore link → open **handoff packet**.
+1. NFC **A02** at ESP32 → baseline loaded on station.
+2. Voice: dizziness + headache (Grok Voice via station audio).
+3. ESP32 procedure HR → **84** → personal deviation; SpO₂/temp via stream or sensors.
+4. Tools pull cabin CO₂ (EDA) + radiation (RadLab) + OSDR historical cards.
+5. **A03** overlapping signal → **2/4 crew** escalation.
+6. Autonomous toggle → handoff packet for ground.
 
 ---
 
 ## Scope control (if time runs short)
 
-| Cut last                   | Keep                              |
-| -------------------------- | --------------------------------- |
-| Mission-phase drift trends | Steps 1–6 + minimal Voice in 7    |
-| Space weather JSON layer   | Spacecraft env + historical cache |
-| Fancy visuals              | Evidence board + crew escalation  |
+| Cut last               | Keep                                       |
+| ---------------------- | ------------------------------------------ |
+| Live RadLab refresh    | Step 5 cached RadLab + OSDR + EDA files    |
+| Fancy ESP32 display UI | NFC + measurement POST + audio bridge stub |
+| Grok Imagine           | Voice + tool calling                       |
+| Browser-only voice     | Only as backup to ESP32                    |
 
 ---
 
-## Dependencies to add (when implementing)
+## Dependencies (remaining)
 
-- `better-sqlite3` + `@types/better-sqlite3` (Step 1 — done)
-- **shadcn/ui** + Tailwind semantic theme (Step 2 — station dashboard; [shadcn skill](C:\Users\nanna\.agents\skills\shadcn\SKILL.md))
-- Grok/xAI SDK or fetch to Voice endpoints (Step 7)
+- Step 5: no new deps (JSON + retrieve); optional `fetch` to RadLab
+- Step 7: PlatformIO/Arduino toolchain; ESP32 boards libs (NFC, I2S as needed)
+- Step 8: xAI / Grok Voice + chat APIs (`XAI_API_KEY`)
+- Step 9: none beyond existing SQLite
 
-No separate backend service; all logic stays in the Next.js server boundary you chose.
+**Product principle check (every feature):** Does this help notice a meaningful change, decide what evidence to collect next, or communicate better to ground—via **physical station + multi-source space evidence + Grok orchestration**? If it’s only summarizing vitals on a webpage, it’s out of scope.

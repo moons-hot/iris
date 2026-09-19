@@ -54,7 +54,7 @@ export function seedDatabase(db: Database.Database): void {
     ["A01", "heart_rate", 58, 4, 52, 66, 60, 100, "bpm"],
     ["A01", "spo2", 97.5, 0.4, 96.5, 99, 95, 100, "%"],
     ["A01", "temp_c", 36.6, 0.15, 36.3, 36.9, 36.1, 37.2, "°C"],
-    ["A02", "heart_rate", 62, 3, 56, 68, 60, 100, "bpm"],
+    ["A02", "heart_rate", 62, 3, 56, 73, 60, 100, "bpm"],
     ["A02", "spo2", 98, 0.3, 97, 99.2, 95, 100, "%"],
     ["A02", "temp_c", 36.5, 0.12, 36.2, 36.8, 36.1, 37.2, "°C"],
     ["A03", "heart_rate", 64, 3.5, 58, 70, 60, 100, "bpm"],
@@ -84,11 +84,16 @@ export function seedDatabase(db: Database.Database): void {
             ? 64
             : 60;
     for (let i = 0; i < 8; i++) {
-      const day = MISSION_DAY - 14 + i * 2;
+      const day =
+        crewId === "A02" ? MISSION_DAY - 56 + i * 8 : MISSION_DAY - 14 + i * 2;
+      const hrValue =
+        crewId === "A02"
+          ? 58.5 + i * 0.85 + (i % 2) * 0.3
+          : hrMean + (i % 3) - 1;
       insertMeasurement.run(
         crewId,
         "heart_rate",
-        hrMean + (i % 3) - 1,
+        hrValue,
         day,
         "routine_monitor",
       );

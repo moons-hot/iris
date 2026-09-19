@@ -4,8 +4,12 @@ import { join } from "node:path";
 
 import { seedDatabase } from "./seed";
 
+/** Bump when schema.sql changes so dev HMR picks up new tables. */
+const SCHEMA_VERSION = 4;
+
 const globalForDb = globalThis as typeof globalThis & {
   __med1Db?: Database.Database;
+  __med1SchemaVersion?: number;
 };
 
 function loadSchema(): string {
@@ -23,8 +27,17 @@ function createDatabase(): Database.Database {
 
 /** Onboard in-memory store; singleton survives Next.js dev HMR. */
 export function getDb(): Database.Database {
+  if (
+    globalForDb.__med1Db &&
+    globalForDb.__med1SchemaVersion !== SCHEMA_VERSION
+  ) {
+    globalForDb.__med1Db.close();
+    globalForDb.__med1Db = undefined;
+  }
+
   if (!globalForDb.__med1Db) {
     globalForDb.__med1Db = createDatabase();
+    globalForDb.__med1SchemaVersion = SCHEMA_VERSION;
   }
   return globalForDb.__med1Db;
 }

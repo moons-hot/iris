@@ -1,0 +1,26 @@
+{
+  "source": "NASA OSDR — Inspiration4 human biological data (curated demo cache)",
+  "disclaimer": "Summaries for investigation context only. Not clinical diagnosis. Not a claim that these markers explain the current astronaut.",
+  "studies": [
+    {
+      "study_id": "OSD-575",
+      "title": "Inspiration4 blood-serum metabolic and immune/cardiovascular biomarkers",
+      "population": "human",
+      "mission": "Inspiration4",
+      "measurement_category": "blood_serum_biomarkers",
+      "observed_change_summary": "Previous spaceflight research on Inspiration4 documented measurable pre/post-flight changes in blood-serum metabolic and immune/cardiovascular biomarkers. This provides historical context for cardiovascular and immune categories under investigation — not proof of what is occurring to the current crew member.",
+      "tags": ["cardiovascular", "immune", "heart_rate", "inflammation", "human", "inspiration4"],
+      "citation_url": "https://osdr.nasa.gov/bio/repo/data/studies/OSD-575"
+    },
+    {
+      "study_id": "OSD-656",
+      "title": "Inspiration4 urine inflammatory cytokine and chemokine proteins",
+      "population": "human",
+      "mission": "Inspiration4",
+      "measurement_category": "urine_inflammatory_proteins",
+      "observed_change_summary": "OSDR study OSD-656 reports inflammatory, cytokine, and chemokine protein measurements from urine samples collected before and after Inspiration4 flight. Relevant as historical inflammatory-context evidence when headache or systemic symptoms are under investigation.",
+      "tags": ["inflammation", "immune", "headache", "cytokine", "human", "inspiration4"],
+      "citation_url": "https://osdr.nasa.gov/bio/repo/data/studies/OSD-656"
+    }
+  ]
+}

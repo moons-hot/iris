@@ -1,11 +1,15 @@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { CrewSelector } from "@/components/station/crew-selector";
 import { EnvironmentStrip } from "@/components/station/environment-strip";
-import { InvestigationSlot } from "@/components/station/investigation-slot";
+import { InvestigationPanel } from "@/components/station/investigation-panel";
+import { MonitoringProvider } from "@/components/station/monitoring-provider";
+import { RoutineCheckHint } from "@/components/station/routine-check-hint";
 import { StationHeader } from "@/components/station/station-header";
 import { VitalsSummary } from "@/components/station/vitals-summary";
+import { buildCrewTrendReport } from "@/lib/baseline/trends";
 import {
   getCrewById,
+  getCrewMeasurementHistory,
   getEnvironmentReadings,
   getMissionState,
 } from "@/lib/db/queries";
@@ -39,9 +43,16 @@ export default async function StationPage({
     );
   }
 
+  const measurementHistory = getCrewMeasurementHistory(crewId);
+  const trendReport = buildCrewTrendReport(
+    crewId,
+    mission.missionDay,
+    measurementHistory,
+  );
   const vitals = buildVitalCards(
     crewRecord.baselines,
     crewRecord.recentMeasurements,
+    { crewId, missionTrends: trendReport.trends },
   );
 
   return (
@@ -62,20 +73,28 @@ export default async function StationPage({
         </Alert>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)_minmax(0,20rem)]">
-        <section className="flex flex-col gap-4">
-          <CrewSelector crew={mission.crew} selectedId={crewId} />
-          <VitalsSummary vitals={vitals} />
-        </section>
+      <MonitoringProvider
+        crewId={crewId}
+        initialVitals={vitals}
+        initialTrendReport={trendReport}
+      >
+        <RoutineCheckHint />
 
-        <section className="min-h-56">
-          <InvestigationSlot />
-        </section>
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)_minmax(0,20rem)]">
+          <section className="flex flex-col gap-4">
+            <CrewSelector crew={mission.crew} selectedId={crewId} />
+            <VitalsSummary crewId={crewId} fallbackVitals={vitals} />
+          </section>
 
-        <section>
-          <EnvironmentStrip readings={environment} />
-        </section>
-      </div>
+          <section className="min-h-56">
+            <InvestigationPanel crewId={crewId} />
+          </section>
+
+          <section>
+            <EnvironmentStrip readings={environment} />
+          </section>
+        </div>
+      </MonitoringProvider>
     </div>
   );
 }

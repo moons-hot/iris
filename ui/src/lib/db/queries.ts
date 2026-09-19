@@ -124,6 +124,29 @@ export function getCrewById(crewId: string): {
   };
 }
 
+export function getCrewMeasurementHistory(crewId: string): Measurement[] {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT metric_key, value, recorded_at_mission_day, source
+       FROM measurements WHERE crew_id = ?
+       ORDER BY recorded_at_mission_day ASC, id ASC`,
+    )
+    .all(crewId.toUpperCase()) as Array<{
+    metric_key: string;
+    value: number;
+    recorded_at_mission_day: number;
+    source: string;
+  }>;
+
+  return rows.map((m) => ({
+    metricKey: m.metric_key,
+    value: m.value,
+    recordedAtMissionDay: m.recorded_at_mission_day,
+    source: m.source,
+  }));
+}
+
 export function getEnvironmentReadings(): EnvironmentReading[] {
   const db = getDb();
   const rows = db
