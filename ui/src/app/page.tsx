@@ -2,33 +2,33 @@ import Link from "next/link";
 
 export default function HomePage() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-[#2e026d] to-[#15162c] text-white">
-      <div className="container flex flex-col items-center justify-center gap-12 px-4 py-16">
-        <h1 className="text-5xl font-extrabold tracking-tight text-white sm:text-[5rem]">
-          Create <span className="text-[hsl(280,100%,70%)]">T3</span> App
+    <main className="flex min-h-screen flex-col items-center justify-center bg-[#0a0e17] text-slate-100">
+      <div className="mx-auto flex max-w-lg flex-col items-center gap-8 px-6 py-16 text-center">
+        <p className="text-xs font-medium tracking-[0.35em] text-cyan-400/90 uppercase">
+          Autonomous Health Investigation
+        </p>
+        <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
+          MED-1
         </h1>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:gap-8">
-          <Link
-            className="flex max-w-xs flex-col gap-4 rounded-xl bg-white/10 p-4 text-white hover:bg-white/20"
-            href="https://create.t3.gg/en/usage/first-steps"
-            target="_blank"
-          >
-            <h3 className="text-2xl font-bold">First Steps →</h3>
-            <div className="text-lg">
-              Just the basics - Everything you need to know to set up your
-              database and authentication.
-            </div>
+        <p className="text-slate-400">
+          Onboard medical investigation for deep-space crews. Mission data is
+          served from in-memory onboard storage.
+        </p>
+        <Link
+          href="/station"
+          className="rounded-md border border-cyan-500/40 bg-cyan-500/10 px-6 py-3 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/20"
+        >
+          Open medical station
+        </Link>
+        <div className="flex flex-wrap justify-center gap-3 text-xs text-slate-500">
+          <Link href="/api/mission" className="hover:text-slate-300">
+            /api/mission
           </Link>
-          <Link
-            className="flex max-w-xs flex-col gap-4 rounded-xl bg-white/10 p-4 text-white hover:bg-white/20"
-            href="https://create.t3.gg/en/introduction"
-            target="_blank"
-          >
-            <h3 className="text-2xl font-bold">Documentation →</h3>
-            <div className="text-lg">
-              Learn more about Create T3 App, the libraries it uses, and how to
-              deploy it.
-            </div>
+          <Link href="/api/crew/A02" className="hover:text-slate-300">
+            /api/crew/A02
+          </Link>
+          <Link href="/api/environment" className="hover:text-slate-300">
+            /api/environment
           </Link>
         </div>
       </div>

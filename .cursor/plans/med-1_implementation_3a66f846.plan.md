@@ -4,9 +4,9 @@ overview: "Build MED-1 incrementally inside the existing [ui/](ui/) Next.js app:
 todos:
     - id: step-1-db
       content: SQLite schema, seed Mars crew/env data, mission + crew API routes
-      status: pending
+      status: completed
     - id: step-2-station-ui
-      content: Medical station shell UI with crew identify and mission/comm context
+      content: Sleek shadcn + Tailwind station dashboard (crew select, vitals, env strip)
       status: pending
     - id: step-3-investigation
       content: Deterministic investigation state machine + APIs + station action loop
@@ -29,7 +29,7 @@ todos:
 isProject: false
 ---
 
-# MED-1 step-by-step implementation plan
+# ndcsMED-1 step-by-step implementation plan
 
 ## Stack and architecture (locked for hackathon)
 
@@ -62,7 +62,7 @@ flowchart LR
 
 ---
 
-## Step 1 — Mission shell + in-memory data plane
+## Step 1 — Mission shell + in-memory data plane (done)
 
 **Build**
 
@@ -81,20 +81,68 @@ flowchart LR
 
 ---
 
-## Step 2 — Medical station UI (spacecraft, not dashboard)
+## Step 2 — Medical station UI (sleek shadcn dashboard)
 
-**Build**
+**Goal:** A **simple, proper** medical station screen—readable in 10 seconds, no feature creep. Tailwind for layout; **shadcn/ui** for polished primitives. This step is **context + identity + vitals + environment only**; the investigation loop stays in Step 3.
 
-- Route: `ui/src/app/station/page.tsx` — full-viewport “MED-1” console: dark industrial UI, crew identify (tap badge or dropdown), mission clock, comm delay badge, crew vitals summary (from baselines + last known measurements).
-- Components under `ui/src/components/station/` (header, crew card, env strip).
-- Optional: `POST /api/demo/reset` to re-seed DB for repeatable demos.
+**Design principles**
+
+- **One screen, three jobs:** (1) where we are in the mission, (2) who is at the station, (3) what we know about their health and the cabin right now.
+- **Sleek, not busy:** dark theme, generous whitespace, semantic tokens (`bg-background`, `text-muted-foreground`)—no neon “sci-fi” chrome, no charts, no fake telemetry wallpaper.
+- **Core product unchanged:** we are not building a health analytics dashboard; we are building the **frame** that Step 3’s investigation UI will slot into (center column reserved for conversation/actions later).
+
+**Setup (first tasks in this step)**
+
+- Run shadcn init in `ui/` if `components.json` is missing (`pnpm dlx shadcn@latest init`) — default style, **dark** class on `html` or `layout` for station routes.
+- Add only the components needed (keep the tree small):
+  - `card`, `badge`, `select`, `separator`, `skeleton` (loading)
+  - Optional: `alert` for a single non-diagnostic disclaimer line (“Investigation support — not a diagnosis”)
+
+**Layout** — `ui/src/app/station/page.tsx` (+ `ui/src/app/station/layout.tsx` if useful for dark shell)
+
+| Zone | Content | shadcn building blocks |
+|------|---------|-------------------------|
+| **Top bar** | MED-1 title, mission name, **Mission day 180**, **Earth comm ~18 min** one-way, link status `connected` (read-only for now) | `Card` or plain header + `Badge` variants |
+| **Crew** | **Select** crew A01–A04 (default A02 for demo); show name + role | `Select` + `Card` |
+| **Vitals** | For selected crew: last known HR / SpO2 / temp + **personal baseline** (mean or min–max) vs **population range**—short labels, no diagnosis copy | 2–3 `Card`s in a responsive grid |
+| **Cabin environment** | Compact list from `/api/environment`: metric, value, unit, `Badge` **nominal** vs **above/below nominal** (CO₂ should show as non-nominal) | `Card` + `Badge`; one line disclaimer that anomaly ≠ cause |
+
+**Data wiring**
+
+- Server Components preferred: fetch `GET /api/mission`, `/api/crew/[id]`, `/api/environment` via shared `lib` helpers (or direct `queries` on server—avoid duplicating logic).
+- Client only where needed: crew `Select` updates URL (`/station?crew=A02`) or local state; page refetches crew payload for that id.
+- Loading: `Skeleton` placeholders; errors: single `Alert`, not custom divs.
+
+**Components** (thin wrappers, no business logic)
+
+- `ui/src/components/station/station-header.tsx`
+- `ui/src/components/station/crew-selector.tsx`
+- `ui/src/components/station/vitals-summary.tsx`
+- `ui/src/components/station/environment-strip.tsx`
+- Reuse `ui/src/components/ui/*` from shadcn; follow [shadcn skill](C:\Users\nanna\.agents\skills\shadcn\SKILL.md) (semantic colors, `Card` composition, `Badge` for status).
+
+**Explicitly out of scope for Step 2** (defer to later steps)
+
+- Investigation transcript, symptom entry, action buttons → Step 3
+- Baseline deviation engine UI copy beyond showing numbers → Step 4
+- Historical evidence board, space weather, crew escalation banner → Steps 5–6
+- Grok Voice, autonomous toggle, handoff export → Steps 7–8
+- Extra pages, settings, crew roster tables, charts/sparklines, animations, `POST /api/demo/reset` unless you hit a demo blocker
+
+**Optional (only if zero cost)**
+
+- `POST /api/demo/reset` to re-seed in-memory DB between judge runs.
 
 **You can test**
 
-- Select **A02** → see “normal for A02” HR band vs population range.
-- Env strip shows nominal vs **one amber** reading (seeded anomaly) without explaining causation.
+1. `pnpm dev` → **http://localhost:3000/station**
+2. Mission bar shows day **180**, comm delay **18** min, four crew in selector.
+3. Select **A02** → vitals cards show HR baseline **~62** and population band **60–100**; latest measurements from seed visible.
+4. Environment card lists readings; **CO₂** shows non-nominal badge; copy does not say CO₂ “caused” anything.
+5. Resize to mobile width: grid stacks; nothing critical hidden.
+6. Home → “Open medical station” still works; APIs unchanged if called directly.
 
-**Visible difference:** feels like a ship system; judges can orient in 10 seconds.
+**Visible difference:** judges see a **clean MED-1 station** with real onboard data—not raw JSON, not a placeholder—and the UI clearly leaves room for the investigation loop as the hero in Step 3.
 
 ---
 
@@ -248,6 +296,7 @@ ui/src/
     historical-evidence.json
     space-environment.json
   components/station/
+  components/ui/          # shadcn primitives
 ```
 
 ---
@@ -274,8 +323,8 @@ ui/src/
 
 ## Dependencies to add (when implementing)
 
-- `better-sqlite3` + `@types/better-sqlite3`
-- Grok/xAI SDK or fetch to Voice endpoints (per current xAI docs)
-- Optional: `shadcn/ui` for fast station components ([shadcn skill](C:\Users\nanna.agents\skills\shadcn\SKILL.md) when you reach Step 2)
+- `better-sqlite3` + `@types/better-sqlite3` (Step 1 — done)
+- **shadcn/ui** + Tailwind semantic theme (Step 2 — station dashboard; [shadcn skill](C:\Users\nanna\.agents\skills\shadcn\SKILL.md))
+- Grok/xAI SDK or fetch to Voice endpoints (Step 7)
 
 No separate backend service; all logic stays in the Next.js server boundary you chose.

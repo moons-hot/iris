@@ -4,6 +4,8 @@
  */
 
 /** @type {import("next").NextConfig} */
-const config = {};
+const config = {
+  serverExternalPackages: ["better-sqlite3"],
+};
 
 export default config;
