@@ -2,6 +2,7 @@ import { generateText } from "ai";
 import { xai } from "@ai-sdk/xai";
 
 import { investigationReply } from "@/lib/iris";
+import { parseSentAt, recordCommsLog } from "@/lib/tiger";
 
 export const runtime = "nodejs";
 
@@ -12,9 +13,11 @@ Use the NASA Human Research Roadmap Risk 95 reference when relevant: https://hum
 Return concise markdown with Observed, Working interpretation, and Next evidence headings.`;
 
 export async function POST(request: Request) {
+  const receivedAt = new Date();
   const body = (await request.json()) as {
     message?: string;
     voiceAssessment?: string;
+    sentAt?: string;
   };
   if (!body.message?.trim()) {
     return Response.json(
@@ -23,9 +26,16 @@ export async function POST(request: Request) {
     );
   }
 
+  const log = await recordCommsLog({
+    sentAt: parseSentAt(body.sentAt, receivedAt),
+    receivedAt,
+    channel: "typed",
+    summary: body.message.trim(),
+  });
+
   const fallback = investigationReply(body.message, body.voiceAssessment);
   if (!process.env.XAI_API_KEY)
-    return Response.json({ ...fallback, source: "onboard-demo" });
+    return Response.json({ ...fallback, source: "onboard-demo", log });
 
   try {
     const result = await generateText({
@@ -33,13 +43,19 @@ export async function POST(request: Request) {
       system,
       prompt: `Astronaut report: ${body.message}\nVoice assessment: ${body.voiceAssessment ?? "not available"}\n\nOnboard investigation context:\n${fallback.text}\n\nPreserve citation IDs already in the context.`,
     });
-    return Response.json({ ...fallback, text: result.text, source: "grok" });
+    return Response.json({
+      ...fallback,
+      text: result.text,
+      source: "grok",
+      log,
+    });
   } catch {
     return Response.json({
       ...fallback,
       source: "onboard-demo",
       modelWarning:
         "Grok unavailable; used seeded onboard investigation context.",
+      log,
     });
   }
 }

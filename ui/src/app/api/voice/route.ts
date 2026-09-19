@@ -1,3 +1,5 @@
+import { parseSentAt, recordCommsLog } from "@/lib/tiger";
+
 export const runtime = "nodejs";
 
 function assessVoice(transcript: string) {
@@ -21,14 +23,24 @@ function assessVoice(transcript: string) {
 }
 
 export async function POST(request: Request) {
+  const receivedAt = new Date();
   const form = await request.formData();
   const audio = form.get("audio");
   const suppliedTranscript = form.get("transcript");
+  const sentAt = parseSentAt(form.get("sentAt"), receivedAt);
 
   if (typeof suppliedTranscript === "string" && suppliedTranscript.trim()) {
+    const transcript = suppliedTranscript.trim();
+    const log = await recordCommsLog({
+      sentAt,
+      receivedAt,
+      channel: "voice",
+      summary: transcript,
+    });
     return Response.json({
-      transcript: suppliedTranscript.trim(),
+      transcript,
       voiceAssessment: assessVoice(suppliedTranscript),
+      log,
     });
   }
   if (!(audio instanceof File)) {
@@ -39,12 +51,20 @@ export async function POST(request: Request) {
   }
 
   if (!process.env.XAI_API_KEY) {
+    const transcript =
+      "Audio received. Configure XAI_API_KEY to enable Grok Voice transcription.";
+    const log = await recordCommsLog({
+      sentAt,
+      receivedAt,
+      channel: "voice",
+      summary: `${audio.name || "audio"} (${audio.size} bytes)`,
+    });
     return Response.json(
       {
-        transcript:
-          "Audio received. Configure XAI_API_KEY to enable Grok Voice transcription.",
+        transcript,
         voiceAssessment: "audio captured; transcription provider unavailable",
         demoFallback: true,
+        log,
       },
       { status: 202 },
     );
@@ -69,8 +89,15 @@ export async function POST(request: Request) {
   }
   const result = (await response.json()) as { text?: string };
   const transcript = result.text ?? "";
+  const log = await recordCommsLog({
+    sentAt,
+    receivedAt,
+    channel: "voice",
+    summary: transcript || `${audio.name || "audio"} (${audio.size} bytes)`,
+  });
   return Response.json({
     transcript,
     voiceAssessment: assessVoice(transcript),
+    log,
   });
 }
