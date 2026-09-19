@@ -84,7 +84,7 @@ Add server-only module [`ui/src/server/snowflake/client.ts`](ui/src/server/snowf
 
 Env (extend [`ui/.env.example`](ui/.env.example); never client-exposed):
 
-- `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USERNAME`, `SNOWFLAKE_PASSWORD` (or key-pair vars if already provisioned)
+- `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USERNAME`, `SNOWFLAKE_PAT` (programmatic access token); optional `SNOWFLAKE_ROLE`
 - `SNOWFLAKE_WAREHOUSE=IRIS_WH`, `SNOWFLAKE_DATABASE=IRIS`, `SNOWFLAKE_SCHEMA=SYNTHEA`
 - `SNOWFLAKE_CORTEX_SEARCH_SERVICE=IRIS_CONTEXT_SEARCH`
 - Optional: `SNOWFLAKE_ACCOUNT_URL` for Cortex REST

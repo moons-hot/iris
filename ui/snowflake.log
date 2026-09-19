@@ -1,0 +1,66 @@
+{"level":"INFO","message":"[2:00:03.402 PM]: Creating new connection object"}
+{"level":"INFO","message":"[2:00:03.418 PM]: Creating Connection[id: 6fb9be04-4e54-41dd-950f-2e743888a6b9] with host: RYXQOKU-AHC21947.snowflakecomputing.com, account: RYXQOKU-AHC21947, accessUrl: https://RYXQOKU-AHC21947.snowflakecomputing.com, user: NAVSTAR, role: ACCOUNTADMIN, database: IRIS, schema: SYNTHEA, warehouse: IRIS_WH, proxy was not configured, password is not provided, region: undefined, authenticator: PROGRAMMATIC_ACCESS_TOKEN, ocsp mode: FAIL_OPEN, os: win32, os version: 10.0.26200"}
+{"level":"INFO","message":"[2:00:03.419 PM]: Connection[id: 6fb9be04-4e54-41dd-950f-2e743888a6b9] additional details: passcode in password is provided, passcode is not provided, private key is not provided, application: IRIS, client name: snowflake-sdk, client version: 3.3.0, retry timeout: 300, private key path: undefined, private key pass is not provided, client store temporary credential: false, browser response timeout: 120000"}
+{"level":"INFO","message":"[2:00:03.420 PM]: Connection[id: 6fb9be04-4e54-41dd-950f-2e743888a6b9] - connection object created successfully."}
+{"level":"INFO","message":"[2:00:03.423 PM]: Connection[id: 6fb9be04-4e54-41dd-950f-2e743888a6b9] - async connecting. Associated Snowflake domain: GLOBAL"}
+{"level":"INFO","message":"[2:00:03.424 PM]: Trying to initialize Easy Logging"}
+{"level":"INFO","message":"[2:00:03.444 PM]: No client config detected."}
+{"level":"INFO","message":"[2:00:03.449 PM]: No config file path found. Client config will not be used."}
+{"level":"INFO","message":"[2:00:03.456 PM]: Easy Logging is disabled as no config has been found"}
+{"level":"INFO","message":"[2:00:03.466 PM]: Connection[id: 6fb9be04-4e54-41dd-950f-2e743888a6b9] - authentication successful using: PROGRAMMATIC_ACCESS_TOKEN"}
+{"level":"INFO","message":"[2:00:05.265 PM]: Connection[id: 6fb9be04-4e54-41dd-950f-2e743888a6b9] - connection established successfully after 1842.04 milliseconds"}
+{"level":"INFO","message":"[2:01:17.079 PM]: Creating new connection object"}
+{"level":"INFO","message":"[2:01:17.096 PM]: Creating Connection[id: 1ae54a54-e662-4aa8-bd61-8743194b7b06] with host: RYXQOKU-AHC21947.snowflakecomputing.com, account: RYXQOKU-AHC21947, accessUrl: https://RYXQOKU-AHC21947.snowflakecomputing.com, user: NAVSTAR, role: ACCOUNTADMIN, database: IRIS, schema: SYNTHEA, warehouse: IRIS_WH, proxy was not configured, password is not provided, region: undefined, authenticator: PROGRAMMATIC_ACCESS_TOKEN, ocsp mode: FAIL_OPEN, os: win32, os version: 10.0.26200"}
+{"level":"INFO","message":"[2:01:17.100 PM]: Connection[id: 1ae54a54-e662-4aa8-bd61-8743194b7b06] additional details: passcode in password is provided, passcode is not provided, private key is not provided, application: IRIS, client name: snowflake-sdk, client version: 3.3.0, retry timeout: 300, private key path: undefined, private key pass is not provided, client store temporary credential: false, browser response timeout: 120000"}
+{"level":"INFO","message":"[2:01:17.102 PM]: Connection[id: 1ae54a54-e662-4aa8-bd61-8743194b7b06] - connection object created successfully."}
+{"level":"INFO","message":"[2:01:17.104 PM]: Connection[id: 1ae54a54-e662-4aa8-bd61-8743194b7b06] - async connecting. Associated Snowflake domain: GLOBAL"}
+{"level":"INFO","message":"[2:01:17.110 PM]: Trying to initialize Easy Logging"}
+{"level":"INFO","message":"[2:01:17.121 PM]: No client config detected."}
+{"level":"INFO","message":"[2:01:17.121 PM]: No config file path found. Client config will not be used."}
+{"level":"INFO","message":"[2:01:17.122 PM]: Easy Logging is disabled as no config has been found"}
+{"level":"INFO","message":"[2:01:17.123 PM]: Connection[id: 1ae54a54-e662-4aa8-bd61-8743194b7b06] - authentication successful using: PROGRAMMATIC_ACCESS_TOKEN"}
+{"level":"INFO","message":"[2:01:18.014 PM]: Connection[id: 1ae54a54-e662-4aa8-bd61-8743194b7b06] - connection established successfully after 910.26 milliseconds"}
+{"level":"INFO","message":"[2:01:53.591 PM]: Creating new connection object"}
+{"level":"INFO","message":"[2:01:53.604 PM]: Creating Connection[id: 5dac583c-29a3-4591-b859-0ca4884b6235] with host: RYXQOKU-AHC21947.snowflakecomputing.com, account: RYXQOKU-AHC21947, accessUrl: https://RYXQOKU-AHC21947.snowflakecomputing.com, user: NAVSTAR, role: ACCOUNTADMIN, database: IRIS, schema: SYNTHEA, warehouse: IRIS_WH, proxy was not configured, password is not provided, region: undefined, authenticator: PROGRAMMATIC_ACCESS_TOKEN, ocsp mode: FAIL_OPEN, os: win32, os version: 10.0.26200"}
+{"level":"INFO","message":"[2:01:53.605 PM]: Connection[id: 5dac583c-29a3-4591-b859-0ca4884b6235] additional details: passcode in password is provided, passcode is not provided, private key is not provided, application: IRIS, client name: snowflake-sdk, client version: 3.3.0, retry timeout: 300, private key path: undefined, private key pass is not provided, client store temporary credential: false, browser response timeout: 120000"}
+{"level":"INFO","message":"[2:01:53.605 PM]: Connection[id: 5dac583c-29a3-4591-b859-0ca4884b6235] - connection object created successfully."}
+{"level":"INFO","message":"[2:01:53.606 PM]: Connection[id: 5dac583c-29a3-4591-b859-0ca4884b6235] - async connecting. Associated Snowflake domain: GLOBAL"}
+{"level":"INFO","message":"[2:01:53.607 PM]: Trying to initialize Easy Logging"}
+{"level":"INFO","message":"[2:01:53.612 PM]: No client config detected."}
+{"level":"INFO","message":"[2:01:53.612 PM]: No config file path found. Client config will not be used."}
+{"level":"INFO","message":"[2:01:53.613 PM]: Easy Logging is disabled as no config has been found"}
+{"level":"INFO","message":"[2:01:53.614 PM]: Connection[id: 5dac583c-29a3-4591-b859-0ca4884b6235] - authentication successful using: PROGRAMMATIC_ACCESS_TOKEN"}
+{"level":"INFO","message":"[2:01:54.250 PM]: Connection[id: 5dac583c-29a3-4591-b859-0ca4884b6235] - connection established successfully after 644.04 milliseconds"}
+{"level":"INFO","message":"[2:03:41.856 PM]: Creating new connection object"}
+{"level":"INFO","message":"[2:03:41.862 PM]: Creating Connection[id: 8101930d-e9c2-45aa-9319-3ef5e0f435f6] with host: RYXQOKU-AHC21947.snowflakecomputing.com, account: RYXQOKU-AHC21947, accessUrl: https://RYXQOKU-AHC21947.snowflakecomputing.com, user: NAVSTAR, role: ACCOUNTADMIN, database: IRIS, schema: SYNTHEA, warehouse: IRIS_WH, proxy was not configured, password is not provided, region: undefined, authenticator: PROGRAMMATIC_ACCESS_TOKEN, ocsp mode: FAIL_OPEN, os: win32, os version: 10.0.26200"}
+{"level":"INFO","message":"[2:03:41.863 PM]: Connection[id: 8101930d-e9c2-45aa-9319-3ef5e0f435f6] additional details: passcode in password is provided, passcode is not provided, private key is not provided, application: IRIS_SCHEMA_PROBE, client name: snowflake-sdk, client version: 3.3.0, retry timeout: 300, private key path: undefined, private key pass is not provided, client store temporary credential: false, browser response timeout: 120000"}
+{"level":"INFO","message":"[2:03:41.863 PM]: Connection[id: 8101930d-e9c2-45aa-9319-3ef5e0f435f6] - connection object created successfully."}
+{"level":"INFO","message":"[2:03:41.864 PM]: Connection[id: 8101930d-e9c2-45aa-9319-3ef5e0f435f6] - async connecting. Associated Snowflake domain: GLOBAL"}
+{"level":"INFO","message":"[2:03:41.864 PM]: Trying to initialize Easy Logging"}
+{"level":"INFO","message":"[2:03:41.886 PM]: No client config detected."}
+{"level":"INFO","message":"[2:03:41.886 PM]: No config file path found. Client config will not be used."}
+{"level":"INFO","message":"[2:03:41.886 PM]: Easy Logging is disabled as no config has been found"}
+{"level":"INFO","message":"[2:03:41.887 PM]: Connection[id: 8101930d-e9c2-45aa-9319-3ef5e0f435f6] - authentication successful using: PROGRAMMATIC_ACCESS_TOKEN"}
+{"level":"INFO","message":"[2:03:42.425 PM]: Connection[id: 8101930d-e9c2-45aa-9319-3ef5e0f435f6] - connection established successfully after 561.57 milliseconds"}
+{"level":"INFO","message":"[2:28:11.422 PM]: Creating new connection object"}
+{"level":"INFO","message":"[2:28:11.434 PM]: Creating Connection[id: 71506f31-948f-4f3f-ad81-55cd02bc3d02] with host: RYXQOKU-AHC21947.snowflakecomputing.com, account: RYXQOKU-AHC21947, accessUrl: https://RYXQOKU-AHC21947.snowflakecomputing.com, user: NAVSTAR, role: ACCOUNTADMIN, database: IRIS, schema: SYNTHEA, warehouse: IRIS_WH, proxy was not configured, password is not provided, region: undefined, authenticator: PROGRAMMATIC_ACCESS_TOKEN, ocsp mode: FAIL_OPEN, os: win32, os version: 10.0.26200"}
+{"level":"INFO","message":"[2:28:11.435 PM]: Connection[id: 71506f31-948f-4f3f-ad81-55cd02bc3d02] additional details: passcode in password is provided, passcode is not provided, private key is not provided, application: IRIS, client name: snowflake-sdk, client version: 3.3.0, retry timeout: 300, private key path: undefined, private key pass is not provided, client store temporary credential: false, browser response timeout: 120000"}
+{"level":"INFO","message":"[2:28:11.436 PM]: Connection[id: 71506f31-948f-4f3f-ad81-55cd02bc3d02] - connection object created successfully."}
+{"level":"INFO","message":"[2:28:11.437 PM]: Connection[id: 71506f31-948f-4f3f-ad81-55cd02bc3d02] - async connecting. Associated Snowflake domain: GLOBAL"}
+{"level":"INFO","message":"[2:28:11.438 PM]: Trying to initialize Easy Logging"}
+{"level":"INFO","message":"[2:28:11.444 PM]: No client config detected."}
+{"level":"INFO","message":"[2:28:11.444 PM]: No config file path found. Client config will not be used."}
+{"level":"INFO","message":"[2:28:11.444 PM]: Easy Logging is disabled as no config has been found"}
+{"level":"INFO","message":"[2:28:11.445 PM]: Connection[id: 71506f31-948f-4f3f-ad81-55cd02bc3d02] - authentication successful using: PROGRAMMATIC_ACCESS_TOKEN"}
+{"level":"INFO","message":"[2:28:12.303 PM]: Connection[id: 71506f31-948f-4f3f-ad81-55cd02bc3d02] - connection established successfully after 866.51 milliseconds"}
+{"level":"INFO","message":"[2:30:56.482 PM]: Creating new connection object"}
+{"level":"INFO","message":"[2:30:56.498 PM]: Creating Connection[id: 07e2d030-37ec-4c1f-86d5-3f0de2f1dfb5] with host: RYXQOKU-AHC21947.snowflakecomputing.com, account: RYXQOKU-AHC21947, accessUrl: https://RYXQOKU-AHC21947.snowflakecomputing.com, user: NAVSTAR, role: ACCOUNTADMIN, database: IRIS, schema: SYNTHEA, warehouse: IRIS_WH, proxy was not configured, password is not provided, region: undefined, authenticator: PROGRAMMATIC_ACCESS_TOKEN, ocsp mode: FAIL_OPEN, os: win32, os version: 10.0.26200"}
+{"level":"INFO","message":"[2:30:56.499 PM]: Connection[id: 07e2d030-37ec-4c1f-86d5-3f0de2f1dfb5] additional details: passcode in password is provided, passcode is not provided, private key is not provided, application: IRIS, client name: snowflake-sdk, client version: 3.3.0, retry timeout: 300, private key path: undefined, private key pass is not provided, client store temporary credential: false, browser response timeout: 120000"}
+{"level":"INFO","message":"[2:30:56.502 PM]: Connection[id: 07e2d030-37ec-4c1f-86d5-3f0de2f1dfb5] - connection object created successfully."}
+{"level":"INFO","message":"[2:30:56.504 PM]: Connection[id: 07e2d030-37ec-4c1f-86d5-3f0de2f1dfb5] - async connecting. Associated Snowflake domain: GLOBAL"}
+{"level":"INFO","message":"[2:30:56.507 PM]: Trying to initialize Easy Logging"}
+{"level":"INFO","message":"[2:30:56.512 PM]: No client config detected."}
+{"level":"INFO","message":"[2:30:56.513 PM]: No config file path found. Client config will not be used."}
+{"level":"INFO","message":"[2:30:56.514 PM]: Easy Logging is disabled as no config has been found"}
+{"level":"INFO","message":"[2:30:56.515 PM]: Connection[id: 07e2d030-37ec-4c1f-86d5-3f0de2f1dfb5] - authentication successful using: PROGRAMMATIC_ACCESS_TOKEN"}
+{"level":"INFO","message":"[2:30:57.382 PM]: Connection[id: 07e2d030-37ec-4c1f-86d5-3f0de2f1dfb5] - connection established successfully after 878.56 milliseconds"}

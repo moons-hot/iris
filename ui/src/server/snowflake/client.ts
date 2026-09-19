@@ -24,15 +24,8 @@ export interface PopulationAggregates {
   conditions: ConceptCountRow[];
 }
 
-interface RestAuth {
-  authorization: string;
-  tokenType: string | null;
-  expiresAt: number;
-}
-
 let connection: Connection | null = null;
 let connecting: Promise<Connection> | null = null;
-let restAuth: RestAuth | null = null;
 let encounterColumn: "ENCOUNTER" | "ENCOUNTER_ID" | null = null;
 
 function env(name: string, fallback = ""): string {
@@ -49,8 +42,8 @@ function sqlIdent(value: string, label: string): string {
 export function snowflakeConfigured(): boolean {
   const account = env("SNOWFLAKE_ACCOUNT");
   const username = env("SNOWFLAKE_USERNAME");
-  const secret = env("SNOWFLAKE_PASSWORD") || env("SNOWFLAKE_PAT");
-  return Boolean(account && username && secret);
+  const pat = env("SNOWFLAKE_PAT");
+  return Boolean(account && username && pat);
 }
 
 function warehouse(): string {
@@ -92,14 +85,18 @@ async function getConnection(): Promise<Connection> {
   if (connecting) return connecting;
 
   connecting = new Promise<Connection>((resolve, reject) => {
+    const pat = env("SNOWFLAKE_PAT");
+    if (!pat) {
+      connecting = null;
+      reject(new Error("SNOWFLAKE_PAT is required for Snowflake auth."));
+      return;
+    }
+
     const next = snowflake.createConnection({
       account: env("SNOWFLAKE_ACCOUNT"),
       username: env("SNOWFLAKE_USERNAME"),
-      password: env("SNOWFLAKE_PASSWORD") || undefined,
-      authenticator: env("SNOWFLAKE_PAT")
-        ? "PROGRAMMATIC_ACCESS_TOKEN"
-        : undefined,
-      token: env("SNOWFLAKE_PAT") || undefined,
+      authenticator: "PROGRAMMATIC_ACCESS_TOKEN",
+      token: pat,
       warehouse: warehouse(),
       database: database(),
       schema: schemaName(),
@@ -169,68 +166,13 @@ function encounterIdFromHit(row: Record<string, unknown>): string | null {
 
 async function restAuthHeaders(): Promise<Record<string, string>> {
   const pat = env("SNOWFLAKE_PAT");
-  if (pat) {
-    return {
-      authorization: `Bearer ${pat}`,
-      "X-Snowflake-Authorization-Token-Type": "PROGRAMMATIC_ACCESS_TOKEN",
-      "content-type": "application/json",
-      accept: "application/json",
-    };
+  if (!pat) {
+    throw new Error("SNOWFLAKE_PAT is required for Cortex Search REST auth.");
   }
-
-  if (restAuth && restAuth.expiresAt > Date.now() + 60_000) {
-    return {
-      authorization: restAuth.authorization,
-      ...(restAuth.tokenType
-        ? { "X-Snowflake-Authorization-Token-Type": restAuth.tokenType }
-        : {}),
-      "content-type": "application/json",
-      accept: "application/json",
-    };
-  }
-
-  const url = new URL(`${accountUrl()}/session/v1/login-request`);
-  url.searchParams.set("warehouse", warehouse());
-  url.searchParams.set("databaseName", database());
-  url.searchParams.set("schemaName", schemaName());
-  const role = env("SNOWFLAKE_ROLE");
-  if (role) url.searchParams.set("roleName", role);
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json", accept: "application/json" },
-    body: JSON.stringify({
-      data: {
-        CLIENT_APP_ID: "IRIS",
-        CLIENT_APP_VERSION: "0.1.0",
-        ACCOUNT_NAME: env("SNOWFLAKE_ACCOUNT"),
-        LOGIN_NAME: env("SNOWFLAKE_USERNAME"),
-        PASSWORD: env("SNOWFLAKE_PASSWORD"),
-      },
-    }),
-  });
-
-  const payload = (await response.json()) as {
-    success?: boolean;
-    message?: string;
-    data?: { token?: string; validityInSeconds?: number };
-  };
-
-  if (!response.ok || !payload.success || !payload.data?.token) {
-    throw new Error(
-      payload.message ?? `Snowflake login failed (${response.status}).`,
-    );
-  }
-
-  const ttlMs = (payload.data.validityInSeconds ?? 3600) * 1000;
-  restAuth = {
-    authorization: `Snowflake Token="${payload.data.token}"`,
-    tokenType: null,
-    expiresAt: Date.now() + ttlMs,
-  };
 
   return {
-    authorization: restAuth.authorization,
+    authorization: `Bearer ${pat}`,
+    "X-Snowflake-Authorization-Token-Type": "PROGRAMMATIC_ACCESS_TOKEN",
     "content-type": "application/json",
     accept: "application/json",
   };
@@ -249,7 +191,7 @@ async function queryCortexSearchRest(
     headers: await restAuthHeaders(),
     body: JSON.stringify({
       query,
-      columns: ["encounter_id", "ENCOUNTER_ID", "encounter"],
+      columns: ["encounter_id"],
       limit: SEARCH_LIMIT,
     }),
   });
@@ -343,16 +285,18 @@ function asConceptRows(
 
 async function aggregateTable(
   table: string,
+  nameColumn: string,
   encounterIds: string[],
-  column: "ENCOUNTER" | "ENCOUNTER_ID",
+  encounterColumnName: "ENCOUNTER" | "ENCOUNTER_ID",
 ): Promise<ConceptCountRow[]> {
   if (encounterIds.length === 0) return [];
+  const nameCol = sqlIdent(nameColumn, "name column");
   const placeholders = encounterIds.map(() => "?").join(", ");
   const rows = await executeSnowflakeQuery(
-    `SELECT DESCRIPTION AS CONCEPT, COUNT(DISTINCT ${column}) AS CNT
+    `SELECT ${nameCol} AS CONCEPT, COUNT(DISTINCT ${encounterColumnName}) AS CNT
      FROM ${qualified(table)}
-     WHERE ${column} IN (${placeholders})
-     GROUP BY DESCRIPTION
+     WHERE ${encounterColumnName} IN (${placeholders})
+     GROUP BY ${nameCol}
      ORDER BY CNT DESC
      LIMIT 20`,
     encounterIds,
@@ -366,12 +310,12 @@ async function resolveEncounterColumn(
   if (encounterColumn) return encounterColumn;
   try {
     await executeSnowflakeQuery(
-      `SELECT 1 AS OK FROM ${qualified("OBSERVATIONS")} WHERE ENCOUNTER = ? LIMIT 1`,
+      `SELECT 1 AS OK FROM ${qualified("OBSERVATIONS")} WHERE ENCOUNTER_ID = ? LIMIT 1`,
       [sampleId],
     );
-    encounterColumn = "ENCOUNTER";
-  } catch {
     encounterColumn = "ENCOUNTER_ID";
+  } catch {
+    encounterColumn = "ENCOUNTER";
   }
   return encounterColumn;
 }
@@ -391,10 +335,10 @@ export async function aggregatePopulationConcepts(
   const column = await resolveEncounterColumn(encounterIds[0]!);
   const [observations, medications, procedures, conditions] = await Promise.all(
     [
-      aggregateTable("OBSERVATIONS", encounterIds, column),
-      aggregateTable("MEDICATIONS", encounterIds, column),
-      aggregateTable("PROCEDURES", encounterIds, column),
-      aggregateTable("CONDITIONS", encounterIds, column),
+      aggregateTable("OBSERVATIONS", "OBSERVATION_NAME", encounterIds, column),
+      aggregateTable("MEDICATIONS", "MEDICATION_NAME", encounterIds, column),
+      aggregateTable("PROCEDURES", "PROCEDURE_NAME", encounterIds, column),
+      aggregateTable("CONDITIONS", "CONDITION_NAME", encounterIds, column),
     ],
   );
 

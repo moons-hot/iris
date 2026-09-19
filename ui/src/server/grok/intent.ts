@@ -186,10 +186,21 @@ export function keywordIntent(utterance: string): Intent {
     };
   }
 
+  const hypertension = has(
+    "hypertension",
+    "high blood pressure",
+    "elevated blood pressure",
+    "blood pressure",
+  );
+
   return {
     action: "request_context",
     purpose: "treatment",
-    task: has("chest pain") ? "chest_pain_evaluation" : "clinical_review",
+    task: has("chest pain")
+      ? "chest_pain_evaluation"
+      : hypertension
+        ? "hypertension_evaluation"
+        : "clinical_review",
     requestedContext: [
       "visit_reason",
       "vitals",
