@@ -6,9 +6,9 @@
   "scripts": {
     "build": "next build",
     "check": "eslint . && tsc --noEmit && vitest run",
-    "db:seed": "tsx scripts/seed.ts",
+    "db:seed": "tsx --env-file=.env scripts/seed.ts",
     "dev": "next dev --turbo",
-    "device:secrets": "tsx scripts/device-secrets.ts",
+    "device:secrets": "tsx --env-file=.env scripts/device-secrets.ts",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mdx}\" --cache",
     "format:write": "prettier --write \"**/*.{ts,tsx,js,jsx,mdx}\" --cache",
     "lint": "eslint .",
