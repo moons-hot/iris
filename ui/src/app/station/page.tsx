@@ -7,6 +7,7 @@ import {
   HeartPulse,
   Mic,
   Radio,
+  ScrollText,
   Send,
   ShieldAlert,
   Sparkles,
@@ -46,6 +47,25 @@ type Finding = {
   citations: { id: string; title: string; source: string }[];
   speak: string;
 };
+type CommsLog = {
+  id: string;
+  sentAt: string;
+  receivedAt: string;
+  latencyMs: number;
+  channel: "typed" | "voice" | "speak";
+  direction: "uplink" | "downlink";
+  crewId: string;
+  summary: string;
+};
+
+function formatClock(iso: string) {
+  return new Date(iso).toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
 
 function MetricList({ metrics }: { metrics: Metric[] }) {
   return (
@@ -81,13 +101,27 @@ export default function StationPage() {
   const [finding, setFinding] = useState<Finding | null>(null);
   const [loading, setLoading] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [logs, setLogs] = useState<CommsLog[]>([]);
+  const [logsConfigured, setLogsConfigured] = useState(false);
   const recorder = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
+
+  const refreshLogs = useCallback(async () => {
+    const response = await fetch("/api/logs");
+    if (!response.ok) return;
+    const result = (await response.json()) as {
+      configured?: boolean;
+      logs?: CommsLog[];
+    };
+    setLogsConfigured(Boolean(result.configured));
+    setLogs(result.logs ?? []);
+  }, []);
 
   const refresh = useCallback(async () => {
     const response = await fetch("/api/monitoring/tick");
     if (response.ok) setSnapshot(await response.json());
-  }, []);
+    await refreshLogs();
+  }, [refreshLogs]);
 
   useEffect(() => {
     void refresh();
@@ -117,7 +151,11 @@ export default function StationPage() {
       const response = await fetch("/api/investigations/active/actions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: report, voiceAssessment }),
+        body: JSON.stringify({
+          message: report,
+          voiceAssessment,
+          sentAt: new Date().toISOString(),
+        }),
       });
       const result = (await response.json()) as Finding;
       setFinding(result);
@@ -160,6 +198,7 @@ export default function StationPage() {
           { type: media.mimeType },
         ),
       );
+      form.set("sentAt", new Date().toISOString());
       const response = await fetch("/api/voice", {
         method: "POST",
         body: form,
@@ -350,6 +389,42 @@ export default function StationPage() {
             </Card>
           </div>
         </div>
+        <Card size="sm">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ScrollText /> Comms log
+            </CardTitle>
+            <CardDescription>
+              Tiger Data records when a report was sent and when Iris received
+              it.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {logs.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {logsConfigured
+                  ? "No comms yet. Send a typed or voice report to log sent/received times."
+                  : "Tiger Data is not configured. Set TIGER_DATABASE_URL to store comms timestamps."}
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {logs.map((log) => (
+                  <div
+                    className="grid gap-2 rounded-lg bg-muted p-3 sm:grid-cols-[88px_minmax(0,1fr)_auto]"
+                    key={log.id}
+                  >
+                    <Badge variant="outline">{log.channel}</Badge>
+                    <p className="truncate text-sm">{log.summary}</p>
+                    <p className="font-mono text-xs text-muted-foreground">
+                      sent {formatClock(log.sentAt)} · recv{" "}
+                      {formatClock(log.receivedAt)} · {log.latencyMs} ms
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
         <Card size="sm">
           <CardHeader>
             <CardTitle>Other crew — historical context</CardTitle>
