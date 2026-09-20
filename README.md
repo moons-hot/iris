@@ -22,6 +22,9 @@ speech fallback.
 2. Select **Mild: breathless + headache**, then speak or type a mild symptom report.
 3. Select **Dire: radiation + visual symptoms**, then report nausea, low blood pressure, vomiting,
    light flashes, and concern. Iris will show the radiation/peer-log context and high-priority next evidence.
+4. Open `/groundbase`. Click Asteria, Helios, Kepler, and Selene to inspect the same metric
+   families, ground alerts, and the Tiger downlink table. Onboard send stays instant; Tiger
+   stores ground-receive 20 minutes later to show light-time from deep space.
 
 ## ESP32 audio (USB + Web Serial)
 

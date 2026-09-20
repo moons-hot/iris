@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { findEvidence, getSnapshot, investigationReply, setScenario } from "./iris";
+import {
+  alertsFor,
+  findEvidence,
+  getFleet,
+  getSnapshot,
+  investigationReply,
+  setScenario,
+} from "./iris";
 
 afterEach(() => {
   setScenario("nominal");
@@ -118,6 +125,51 @@ describe("Iris onboard context", () => {
     expect(radiation?.direction).toBe("up");
     expect(flare?.value).toBeGreaterThanOrEqual(1);
     expect(flare?.direction).toBe("up");
+  });
+
+  it("lists independent craft for groundbase with alerts on Kepler", () => {
+    const fleet = getFleet("kepler");
+    expect(fleet.vessels.map((vessel) => vessel.id)).toEqual([
+      "asteria",
+      "helios",
+      "kepler",
+      "selene",
+    ]);
+    expect(Object.keys(fleet.snapshots)).toEqual([
+      "asteria",
+      "helios",
+      "kepler",
+      "selene",
+    ]);
+    expect(fleet.snapshot.vessel.id).toBe("kepler");
+    expect(fleet.snapshots.kepler?.vessel.kind).toBe("rocket");
+    expect(fleet.snapshot.alerts.length).toBeGreaterThan(0);
+    expect(
+      fleet.snapshot.alerts.some((alert) => alert.severity === "critical"),
+    ).toBe(true);
+    expect(fleet.vessels.find((vessel) => vessel.id === "kepler")?.status).toBe(
+      "alert",
+    );
+  });
+
+  it("keeps Asteria on the live station scenario", () => {
+    setScenario("dire");
+    const fleet = getFleet("asteria");
+    expect(fleet.snapshot.scenario).toBe("dire");
+    expect(fleet.vessels.find((vessel) => vessel.id === "asteria")?.status).toBe(
+      "alert",
+    );
+  });
+
+  it("flags suit-pressure loss on Selene", () => {
+    const fleet = getFleet("selene");
+    const suit = fleet.snapshot.cabin.find(
+      (metric) => metric.label === "Suit pressure",
+    );
+    expect(suit?.value).toBeLessThan(27);
+    expect(alertsFor(fleet.snapshot, "Selene").some((alert) => alert.id === "suit")).toBe(
+      true,
+    );
   });
 
   it("turns a voice report plus live telemetry into possible concerns and next actions", () => {

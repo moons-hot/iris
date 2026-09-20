@@ -1,26 +1,26 @@
 import Database from "better-sqlite3";
 
-export type Scenario = "nominal" | "mild" | "dire";
+import type {
+  FleetResponse,
+  Metric,
+  MissionAlert,
+  Scenario,
+  Snapshot,
+  VesselCard,
+  VesselInfo,
+  VesselSnapshot,
+  VesselStatus,
+} from "./mission-types";
 
-export type Metric = {
-  label: string;
-  value: number;
-  unit: string;
-  baseline: number;
-  direction: "stable" | "up" | "down";
-  /** Recent live-feed samples, oldest first. About 15 points. */
-  history: number[];
-  /** Optional formatted feed (used for blood pressure pairs). */
-  historyText?: string[];
-};
-
-export type Snapshot = {
-  astronaut: { id: string; name: string; missionDay: number };
-  scenario: Scenario;
-  vitals: Metric[];
-  cabin: Metric[];
-  space: Metric[];
-  peers: { id: string; name: string; status: string; heartRate: number }[];
+export type {
+  FleetResponse,
+  Metric,
+  MissionAlert,
+  Scenario,
+  Snapshot,
+  VesselCard,
+  VesselInfo,
+  VesselSnapshot,
 };
 
 type Evidence = {
@@ -117,24 +117,34 @@ if (seeded.count === 0) {
 
 let scenario: Scenario = "nominal";
 let tick = 0;
+const vesselTicks: Record<string, number> = {};
 
-const specs: Record<
-  Scenario,
-  {
-    hr: number;
-    sys: number;
-    dia: number;
-    temp: number;
-    spo2: number;
-    rr: number;
-    co2: number;
-    radiation: number;
-    oxygen: number;
-    suit: number;
-    pressure: number;
-    spe: number;
-  }
-> = {
+export const DEFAULT_VESSEL_ID = "asteria";
+
+type Spec = {
+  hr: number;
+  sys: number;
+  dia: number;
+  temp: number;
+  spo2: number;
+  rr: number;
+  co2: number;
+  radiation: number;
+  oxygen: number;
+  suit: number;
+  pressure: number;
+  spe: number;
+};
+
+type VesselDef = VesselInfo & {
+  astronaut: Snapshot["astronaut"];
+  peers: Snapshot["peers"];
+  liveScenario?: boolean;
+  scenario: Scenario;
+  spec?: Partial<Spec>;
+};
+
+const specs: Record<Scenario, Spec> = {
   nominal: {
     hr: 62,
     sys: 112,
@@ -192,13 +202,14 @@ export function sampleSeries(
   center: number,
   magnitude: number,
   decimals: number,
-  options: { drift?: number; count?: number; phase?: number } = {},
+  options: { drift?: number; count?: number; phase?: number; tick?: number } = {},
 ): number[] {
   const count = options.count ?? 15;
   const drift = options.drift ?? 0;
   const phaseOffset = options.phase ?? 0;
+  const t0 = options.tick ?? tick;
   return Array.from({ length: count }, (_, i) => {
-    const t = tick + i + phaseOffset;
+    const t = t0 + i + phaseOffset;
     const wander =
       Math.sin(t * 1.55) * magnitude +
       Math.sin(t * 0.82 + 1.4) * magnitude * 0.55 +
@@ -246,67 +257,84 @@ function metric(
   };
 }
 
-export function getSnapshot(): Snapshot {
-  tick += 2;
-  const s = specs[scenario];
-  const jitter = scenario === "nominal" ? 1 : 0.55;
-  const hrHistory = sampleSeries(s.hr, 3.8 * jitter, 0);
-  const sysHistory = sampleSeries(s.sys, 4.2 * jitter, 0);
-  const diaHistory = sampleSeries(s.dia, 2.4 * jitter, 0, { phase: 3 });
-  const tempHistory = sampleSeries(s.temp, 0.14 * jitter, 1);
-  const spo2History = sampleSeries(s.spo2, 0.6 * jitter, 0, {
-    drift: scenario === "dire" ? -1.4 : scenario === "mild" ? -0.6 : 0,
+function snapshotFrom(
+  activeScenario: Scenario,
+  t: number,
+  astronaut: Snapshot["astronaut"],
+  peers: Snapshot["peers"],
+  spec: Spec = specs[activeScenario],
+): Snapshot {
+  const jitter = activeScenario === "nominal" ? 1 : 0.55;
+  const hrHistory = sampleSeries(spec.hr, 3.8 * jitter, 0, { tick: t });
+  const sysHistory = sampleSeries(spec.sys, 4.2 * jitter, 0, { tick: t });
+  const diaHistory = sampleSeries(spec.dia, 2.4 * jitter, 0, {
+    phase: 3,
+    tick: t,
   });
-  const rrHistory = sampleSeries(s.rr, 1.1 * jitter, 0, {
-    drift: scenario === "nominal" ? 0 : 1.4,
+  const tempHistory = sampleSeries(spec.temp, 0.14 * jitter, 1, { tick: t });
+  const spo2History = sampleSeries(spec.spo2, 0.6 * jitter, 0, {
+    drift:
+      activeScenario === "dire" ? -1.4 : activeScenario === "mild" ? -0.6 : 0,
+    tick: t,
   });
-  const oxygenHistory = sampleSeries(s.oxygen, 0.12, 1, {
-    drift: scenario === "dire" ? -0.12 : 0,
+  const rrHistory = sampleSeries(spec.rr, 1.1 * jitter, 0, {
+    drift: activeScenario === "nominal" ? 0 : 1.4,
+    tick: t,
   });
-  const co2History = sampleSeries(s.co2, 0.05, 2, {
-    drift: scenario === "nominal" ? 0.03 : 0.1,
+  const oxygenHistory = sampleSeries(spec.oxygen, 0.12, 1, {
+    drift: activeScenario === "dire" ? -0.12 : 0,
+    tick: t,
   });
-  const pressureHistory = sampleSeries(s.pressure, 0.08, 1, {
-    drift: scenario === "dire" ? -0.18 : 0,
+  const co2History = sampleSeries(spec.co2, 0.05, 2, {
+    drift: activeScenario === "nominal" ? 0.03 : 0.1,
+    tick: t,
   });
-  const suitHistory = sampleSeries(s.suit, 0.08, 1, {
-    drift: scenario === "dire" ? -0.7 : 0,
+  const pressureHistory = sampleSeries(spec.pressure, 0.08, 1, {
+    drift: activeScenario === "dire" ? -0.18 : 0,
+    tick: t,
+  });
+  const suitHistory = sampleSeries(spec.suit, 0.08, 1, {
+    drift: activeScenario === "dire" ? -0.7 : 0,
+    tick: t,
   });
   const radiationHistory = sampleSeries(
-    s.radiation,
-    scenario === "dire" ? 0.16 : 0.07,
+    spec.radiation,
+    activeScenario === "dire" ? 0.16 : 0.07,
     2,
     {
-      drift: scenario === "dire" ? 0.22 : 0.03,
+      drift: activeScenario === "dire" ? 0.22 : 0.03,
+      tick: t,
     },
   );
   const flareHistory = Array.from({ length: 15 }, () =>
-    scenario === "dire" ? 1 : 0,
+    activeScenario === "dire" ? 1 : 0,
   );
   const speHistory = sampleSeries(
-    s.spe,
-    scenario === "dire" ? 0.8 : 0.05,
+    spec.spe,
+    activeScenario === "dire" ? 0.8 : 0.05,
     1,
     {
-      drift: scenario === "dire" ? 1.4 : 0,
+      drift: activeScenario === "dire" ? 1.4 : 0,
+      tick: t,
     },
   );
 
-  const latestSys = sysHistory.at(-1) ?? s.sys;
-  const latestDia = diaHistory.at(-1) ?? s.dia;
+  const latestSys = sysHistory.at(-1) ?? spec.sys;
+  const latestDia = diaHistory.at(-1) ?? spec.dia;
 
   return {
-    astronaut: { id: "A01", name: "Mara Voss", missionDay: 184 },
-    scenario,
+    astronaut,
+    scenario: activeScenario,
     vitals: [
       metric("Heart rate", hrHistory, "bpm", 62, 1.2, {
-        direction: scenario === "nominal" ? directionFrom(hrHistory, 1.2) : "up",
+        direction:
+          activeScenario === "nominal" ? directionFrom(hrHistory, 1.2) : "up",
       }),
       metric("Blood pressure", sysHistory, `/${latestDia} mmHg`, 112, 1.5, {
         direction:
-          scenario === "mild"
+          activeScenario === "mild"
             ? "up"
-            : scenario === "dire"
+            : activeScenario === "dire"
               ? "down"
               : directionFrom(sysHistory, 1.5),
         historyText: sysHistory.map(
@@ -315,62 +343,323 @@ export function getSnapshot(): Snapshot {
       }),
       metric("Temperature", tempHistory, "°C", 36.7, 0.08, {
         direction:
-          scenario === "nominal" ? directionFrom(tempHistory, 0.08) : "up",
+          activeScenario === "nominal"
+            ? directionFrom(tempHistory, 0.08)
+            : "up",
       }),
       metric("SpO₂", spo2History, "%", 98, 0.6, {
         direction:
-          scenario === "nominal" ? directionFrom(spo2History, 0.6) : "down",
+          activeScenario === "nominal"
+            ? directionFrom(spo2History, 0.6)
+            : "down",
       }),
       metric("Resp. rate", rrHistory, "/min", 14, 0.8, {
         direction:
-          scenario === "nominal" ? directionFrom(rrHistory, 0.8) : "up",
+          activeScenario === "nominal" ? directionFrom(rrHistory, 0.8) : "up",
       }),
     ],
     cabin: [
       metric("Cabin O₂", oxygenHistory, "%", 20.9, 0.05, {
         direction:
-          scenario === "dire" ? "down" : directionFrom(oxygenHistory, 0.05),
+          activeScenario === "dire"
+            ? "down"
+            : directionFrom(oxygenHistory, 0.05),
       }),
       metric("Cabin CO₂", co2History, "%", 0.61, 0.03, {
         direction:
-          scenario === "nominal" ? directionFrom(co2History, 0.03) : "up",
+          activeScenario === "nominal" ? directionFrom(co2History, 0.03) : "up",
       }),
       metric("Cabin pressure", pressureHistory, "kPa", 101.3, 0.05, {
         direction:
-          scenario === "dire" ? "down" : directionFrom(pressureHistory, 0.05),
+          activeScenario === "dire"
+            ? "down"
+            : directionFrom(pressureHistory, 0.05),
       }),
       metric("Suit pressure", suitHistory, "kPa", 29.6, 0.08, {
         direction:
-          scenario === "dire" ? "down" : directionFrom(suitHistory, 0.08),
+          activeScenario === "dire" ? "down" : directionFrom(suitHistory, 0.08),
       }),
     ],
     space: [
       metric("Hull radiation", radiationHistory, "mSv/h", 0.18, 0.04, {
         direction:
-          scenario === "dire" ? "up" : directionFrom(radiationHistory, 0.04),
+          activeScenario === "dire"
+            ? "up"
+            : directionFrom(radiationHistory, 0.04),
       }),
-      metric("Solar flare", flareHistory, scenario === "dire" ? "active" : "quiet", 0, 0.5, {
-        direction: scenario === "dire" ? "up" : "stable",
-      }),
+      metric(
+        "Solar flare",
+        flareHistory,
+        activeScenario === "dire" ? "active" : "quiet",
+        0,
+        0.5,
+        {
+          direction: activeScenario === "dire" ? "up" : "stable",
+        },
+      ),
       metric("SPE flux", speHistory, "pfu", 0.4, 0.08, {
-        direction: scenario === "dire" ? "up" : directionFrom(speHistory, 0.08),
+        direction:
+          activeScenario === "dire" ? "up" : directionFrom(speHistory, 0.08),
       }),
     ],
-    peers: [
-      {
-        id: "A02",
-        name: "Jonah Reyes",
-        status: scenario === "dire" ? "observing" : "nominal",
-        heartRate: 65,
-      },
-      {
-        id: "A03",
-        name: "Elena Park",
-        status: scenario === "dire" ? "report logged" : "nominal",
-        heartRate: 59,
-      },
-    ],
+    peers,
   };
+}
+
+const asteriaPeers = (): Snapshot["peers"] => [
+  {
+    id: "A02",
+    name: "Jonah Reyes",
+    status: scenario === "dire" ? "observing" : "nominal",
+    heartRate: 65,
+  },
+  {
+    id: "A03",
+    name: "Elena Park",
+    status: scenario === "dire" ? "report logged" : "nominal",
+    heartRate: 59,
+  },
+];
+
+const VESSELS: VesselDef[] = [
+  {
+    id: DEFAULT_VESSEL_ID,
+    name: "Asteria",
+    kind: "habitat",
+    callsign: "AST-1",
+    destination: "Deep-space cruise",
+    astronaut: { id: "A01", name: "Mara Voss", missionDay: 184 },
+    peers: [],
+    liveScenario: true,
+    scenario: "nominal",
+  },
+  {
+    id: "helios",
+    name: "Helios",
+    kind: "shuttle",
+    callsign: "SHU-4",
+    destination: "Rendezvous with Asteria",
+    astronaut: { id: "A04", name: "Nia Okonkwo", missionDay: 12 },
+    peers: [
+      { id: "A05", name: "Chris Vale", status: "nominal", heartRate: 68 },
+      { id: "A06", name: "Priya Shah", status: "nominal", heartRate: 71 },
+    ],
+    scenario: "mild",
+  },
+  {
+    id: "kepler",
+    name: "Kepler",
+    kind: "rocket",
+    callsign: "RKT-7",
+    destination: "Outbound injection",
+    astronaut: { id: "A07", name: "Ravi Mehta", missionDay: 3 },
+    peers: [
+      { id: "A08", name: "Owen Blake", status: "observing", heartRate: 92 },
+    ],
+    scenario: "dire",
+  },
+  {
+    id: "selene",
+    name: "Selene",
+    kind: "shuttle",
+    callsign: "SHU-9",
+    destination: "Lunar swing-by",
+    astronaut: { id: "A09", name: "Sofia Alvarez", missionDay: 41 },
+    peers: [
+      { id: "A10", name: "Kenji Mori", status: "nominal", heartRate: 61 },
+    ],
+    scenario: "nominal",
+    spec: { suit: 26.2, co2: 0.66 },
+  },
+];
+
+function metricByLabel(metrics: Metric[], label: string) {
+  return metrics.find((item) => item.label === label);
+}
+
+export function alertsFor(
+  snapshot: Snapshot,
+  vesselName: string,
+): MissionAlert[] {
+  const alerts: MissionAlert[] = [];
+  const flare = metricByLabel(snapshot.space, "Solar flare");
+  const radiation = metricByLabel(snapshot.space, "Hull radiation");
+  const spe = metricByLabel(snapshot.space, "SPE flux");
+  const hr = metricByLabel(snapshot.vitals, "Heart rate");
+  const spo2 = metricByLabel(snapshot.vitals, "SpO₂");
+  const temp = metricByLabel(snapshot.vitals, "Temperature");
+  const suit = metricByLabel(snapshot.cabin, "Suit pressure");
+  const co2 = metricByLabel(snapshot.cabin, "Cabin CO₂");
+
+  if ((flare?.value ?? 0) >= 1) {
+    alerts.push({
+      id: "flare",
+      severity: "critical",
+      title: "Solar flare",
+      detail: `${vesselName} is in an SPE window. Hull exposure is not nominal — crew should be in shielding.`,
+    });
+  }
+  if (radiation && radiation.value >= 1) {
+    alerts.push({
+      id: "radiation",
+      severity: "critical",
+      title: "Hull radiation",
+      detail: `${radiation.value} mSv/h against a ${radiation.baseline} mSv/h baseline.`,
+    });
+  }
+  if (spo2 && spo2.value <= 92) {
+    alerts.push({
+      id: "spo2",
+      severity: "critical",
+      title: "SpO₂ off baseline",
+      detail: `${spo2.value}% versus ${spo2.baseline}% station target.`,
+    });
+  }
+  if (hr && Math.abs(hr.value - hr.baseline) >= 25) {
+    alerts.push({
+      id: "hr",
+      severity: hr.value >= 110 ? "critical" : "watch",
+      title: "Heart rate",
+      detail: `${hr.value} bpm versus resting baseline ${hr.baseline} bpm.`,
+    });
+  }
+  if (temp && temp.value >= 38) {
+    alerts.push({
+      id: "temp",
+      severity: "watch",
+      title: "Temperature",
+      detail: `${temp.value} °C versus ${temp.baseline} °C baseline.`,
+    });
+  }
+  if (suit && suit.value <= suit.baseline - 3) {
+    alerts.push({
+      id: "suit",
+      severity: "critical",
+      title: "Suit pressure",
+      detail: `${suit.value} kPa versus ${suit.baseline} kPa target.`,
+    });
+  }
+  if (co2 && co2.value >= 0.75) {
+    alerts.push({
+      id: "co2",
+      severity: "watch",
+      title: "Cabin CO₂",
+      detail: `${co2.value}% versus ${co2.baseline}% typical cabin target.`,
+    });
+  }
+  if (spe && spe.value >= 8) {
+    alerts.push({
+      id: "spe",
+      severity: "critical",
+      title: "SPE flux",
+      detail: `${spe.value} pfu during this radiation window.`,
+    });
+  }
+  if (snapshot.scenario === "mild" && !alerts.some((alert) => alert.id === "hr")) {
+    alerts.push({
+      id: "mild",
+      severity: "watch",
+      title: "Crew watch",
+      detail: `${vesselName} vitals have moved off personal baseline. Keep the investigation loop open.`,
+    });
+  }
+  return alerts;
+}
+
+function statusFrom(alerts: MissionAlert[]): VesselStatus {
+  if (alerts.some((alert) => alert.severity === "critical")) return "alert";
+  if (alerts.length > 0) return "watch";
+  return "nominal";
+}
+
+function vesselInfo(def: VesselDef): VesselInfo {
+  return {
+    id: def.id,
+    name: def.name,
+    kind: def.kind,
+    callsign: def.callsign,
+    destination: def.destination,
+  };
+}
+
+function advanceVesselTick(id: string) {
+  if (id === DEFAULT_VESSEL_ID) {
+    tick += 2;
+    return tick;
+  }
+  vesselTicks[id] = (vesselTicks[id] ?? 0) + 2;
+  return vesselTicks[id];
+}
+
+function snapshotForVessel(id: string, advance = true): VesselSnapshot {
+  const def =
+    VESSELS.find((vessel) => vessel.id === id) ??
+    VESSELS[0] ??
+    (() => {
+      throw new Error("No vessels configured");
+    })();
+  const activeScenario = def.liveScenario ? scenario : def.scenario;
+  const t = advance ? advanceVesselTick(def.id) : def.liveScenario ? tick : (vesselTicks[def.id] ?? 0);
+  const spec = { ...specs[activeScenario], ...def.spec };
+  const peers = def.liveScenario ? asteriaPeers() : def.peers;
+  const snapshot = snapshotFrom(
+    activeScenario,
+    t,
+    def.astronaut,
+    peers,
+    spec,
+  );
+  return {
+    ...snapshot,
+    vessel: vesselInfo(def),
+    alerts: alertsFor(snapshot, def.name),
+  };
+}
+
+function toCard(snapshot: VesselSnapshot): VesselCard {
+  const heart = metricByLabel(snapshot.vitals, "Heart rate");
+  const radiation = metricByLabel(snapshot.space, "Hull radiation");
+  const flare = metricByLabel(snapshot.space, "Solar flare");
+  return {
+    ...snapshot.vessel,
+    status: statusFrom(snapshot.alerts),
+    missionDay: snapshot.astronaut.missionDay,
+    crewLead: {
+      id: snapshot.astronaut.id,
+      name: snapshot.astronaut.name,
+    },
+    heartRate: heart?.value ?? 0,
+    radiation: radiation?.value ?? 0,
+    flareActive: (flare?.value ?? 0) >= 1,
+    alertCount: snapshot.alerts.length,
+    scenario: snapshot.scenario,
+  };
+}
+
+export function getSnapshot(): Snapshot {
+  return snapshotForVessel(DEFAULT_VESSEL_ID, true);
+}
+
+export function getFleet(selectedId = DEFAULT_VESSEL_ID): FleetResponse {
+  const list = VESSELS.map((def) => snapshotForVessel(def.id, true));
+  const snapshots = Object.fromEntries(
+    list.map((item) => [item.vessel.id, item]),
+  ) as Record<string, VesselSnapshot>;
+  const selected =
+    snapshots[selectedId] != null ? selectedId : DEFAULT_VESSEL_ID;
+  const snapshot = snapshots[selected];
+  if (!snapshot) {
+    throw new Error("No vessels configured");
+  }
+  return {
+    vessels: list.map(toCard),
+    snapshots,
+    snapshot,
+  };
+}
+
+export function vesselIds() {
+  return VESSELS.map((vessel) => vessel.id);
 }
 
 export function setScenario(next: Scenario) {

@@ -45,6 +45,10 @@ export async function POST(request: Request) {
   const audio = form.get("audio");
   const suppliedTranscript = form.get("transcript");
   const sentAt = parseSentAt(form.get("sentAt"), receivedAt);
+  const vesselId =
+    typeof form.get("vesselId") === "string" && form.get("vesselId")
+      ? String(form.get("vesselId"))
+      : "asteria";
 
   if (typeof suppliedTranscript === "string" && suppliedTranscript.trim()) {
     const transcript = suppliedTranscript.trim();
@@ -52,6 +56,7 @@ export async function POST(request: Request) {
       sentAt,
       receivedAt,
       channel: "voice",
+      vesselId,
       summary: transcript,
     });
     return Response.json({
@@ -73,6 +78,7 @@ export async function POST(request: Request) {
     sentAt,
     receivedAt,
     channel: "voice",
+    vesselId,
     summary:
       result.transcript.trim() ||
       `${audio.name || "audio"} (${audio.size} bytes)`,
