@@ -1,6 +1,14 @@
+import {
+  grokVoiceConfigured,
+  grokVoiceInstructions,
+  GROK_VOICE_MODEL,
+  GROK_VOICE_REALTIME_MODEL,
+  transcribeWithGrokVoice,
+} from "@/lib/grok-voice";
 import { parseSentAt, recordCommsLog } from "@/lib/tiger";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 function assessVoice(transcript: string) {
   const normalized = transcript.toLowerCase();
@@ -22,6 +30,15 @@ function assessVoice(transcript: string) {
     : "no reliable prosody inference available from transcript alone";
 }
 
+export async function GET() {
+  return Response.json({
+    grokVoice: grokVoiceConfigured(),
+    model: grokVoiceConfigured() ? GROK_VOICE_MODEL : null,
+    realtimeModel: grokVoiceConfigured() ? GROK_VOICE_REALTIME_MODEL : null,
+    instructions: grokVoiceInstructions(),
+  });
+}
+
 export async function POST(request: Request) {
   const receivedAt = new Date();
   const form = await request.formData();
@@ -40,6 +57,7 @@ export async function POST(request: Request) {
     return Response.json({
       transcript,
       voiceAssessment: assessVoice(suppliedTranscript),
+      source: "supplied",
       log,
     });
   }
@@ -50,56 +68,22 @@ export async function POST(request: Request) {
     );
   }
 
-  if (!process.env.XAI_API_KEY) {
-    const transcript =
-      "Audio received. Configure XAI_API_KEY to enable Grok Voice transcription.";
-    const log = await recordCommsLog({
-      sentAt,
-      receivedAt,
-      channel: "voice",
-      summary: `${audio.name || "audio"} (${audio.size} bytes)`,
-    });
-    return Response.json(
-      {
-        transcript,
-        voiceAssessment: "audio captured; transcription provider unavailable",
-        demoFallback: true,
-        log,
-      },
-      { status: 202 },
-    );
-  }
-
-  // xAI STT: model must be appended before file.
-  // https://docs.x.ai/docs/guides/voice
-  const upstream = new FormData();
-  upstream.set("model", "grok-voice-transcribe-2.0");
-  upstream.set("file", audio, audio.name || "recording.wav");
-  const response = await fetch("https://api.x.ai/v1/stt", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${process.env.XAI_API_KEY}` },
-    body: upstream,
-  });
-  if (!response.ok) {
-    return Response.json(
-      {
-        error: "Grok Voice transcription failed",
-        detail: await response.text(),
-      },
-      { status: 502 },
-    );
-  }
-  const result = (await response.json()) as { text?: string };
-  const transcript = result.text ?? "";
+  const result = await transcribeWithGrokVoice(audio);
   const log = await recordCommsLog({
     sentAt,
     receivedAt,
     channel: "voice",
-    summary: transcript || `${audio.name || "audio"} (${audio.size} bytes)`,
+    summary:
+      result.transcript.trim() ||
+      `${audio.name || "audio"} (${audio.size} bytes)`,
   });
-  return Response.json({
-    transcript,
-    voiceAssessment: assessVoice(transcript),
-    log,
-  });
+  const status = result.source === "grok-voice" ? 200 : 202;
+  return Response.json(
+    {
+      ...result,
+      voiceAssessment: assessVoice(result.transcript),
+      log,
+    },
+    { status },
+  );
 }

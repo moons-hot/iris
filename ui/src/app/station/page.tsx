@@ -11,6 +11,8 @@ import {
   IrisEspLink,
   mp3BlobToMonoPcm,
 } from "@/lib/esp32-serial";
+import { createPcmTap } from "@/lib/astronaut-mic";
+import { mergeLiveTranscript } from "@/lib/voice-wave";
 
 type Metric = {
   label: string;
@@ -34,6 +36,11 @@ type Finding = {
   severity: "high" | "monitor";
   citations: { id: string; title: string; source: string }[];
   speak: string;
+  possibleConcerns?: string[];
+  recommendedActions?: string[];
+  source?: "grok" | "onboard-demo";
+  voiceEngine?: "grok-voice" | "onboard-demo" | "supplied";
+  heard?: string;
 };
 type CommsLog = {
   id: string;
@@ -135,9 +142,14 @@ export default function StationPage() {
   const [logsConfigured, setLogsConfigured] = useState(false);
   const [espLinked, setEspLinked] = useState(false);
   const [espBusy, setEspBusy] = useState(false);
+  const [grokReady, setGrokReady] = useState(false);
+  const [grokLive, setGrokLive] = useState(false);
+  const [grokText, setGrokText] = useState("");
   const recorder = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
   const esp = useRef<IrisEspLink | null>(null);
+  const stopLiveTap = useRef<(() => void) | null>(null);
+  const liveInFlight = useRef(false);
 
   const refreshLogs = useCallback(async () => {
     const response = await fetch("/api/logs");
@@ -161,6 +173,42 @@ export default function StationPage() {
     const interval = window.setInterval(() => void refresh(), 1600);
     return () => window.clearInterval(interval);
   }, [refresh]);
+
+  useEffect(() => {
+    void fetch("/api/voice")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((status: { grokVoice?: boolean } | null) => {
+        setGrokReady(Boolean(status?.grokVoice));
+      })
+      .catch(() => setGrokReady(false));
+  }, []);
+
+  async function sendLiveChunk(file: File) {
+    if (liveInFlight.current) return;
+    liveInFlight.current = true;
+    try {
+      const form = new FormData();
+      form.set("audio", file);
+      const response = await fetch("/api/voice/live", {
+        method: "POST",
+        body: form,
+      });
+      const result = (await response.json()) as {
+        transcript?: string;
+        source?: string;
+      };
+      if (result.source === "grok-voice" && result.transcript?.trim()) {
+        setGrokLive(true);
+        setGrokText((current) =>
+          mergeLiveTranscript(current, result.transcript ?? ""),
+        );
+      }
+    } catch {
+      setGrokLive(false);
+    } finally {
+      liveInFlight.current = false;
+    }
+  }
 
   async function speak(text: string) {
     const response = await fetch("/api/voice/speak", {
@@ -220,11 +268,16 @@ export default function StationPage() {
         body: JSON.stringify({
           message: report,
           voiceAssessment,
+          telemetry: snapshot,
           sentAt: new Date().toISOString(),
         }),
       });
       const result = (await response.json()) as Finding;
-      setFinding(result);
+      setFinding({
+        ...result,
+        voiceEngine: result.voiceEngine,
+        heard: result.heard ?? report.trim(),
+      });
       setMessage("");
       await speak(result.speak);
       await refresh();
@@ -263,10 +316,20 @@ export default function StationPage() {
             body: form,
           });
           const result = (await response.json()) as {
-            transcript: string;
-            voiceAssessment: string;
+            transcript?: string;
+            voiceAssessment?: string;
+            source?: Finding["voiceEngine"];
           };
-          await investigate(result.transcript, result.voiceAssessment);
+          const heard =
+            result.transcript?.trim() ||
+            grokText.trim() ||
+            "Voice report captured after scenario start.";
+          await investigate(heard, result.voiceAssessment);
+          setFinding((current) =>
+            current
+              ? { ...current, voiceEngine: result.source, heard }
+              : current,
+          );
         } finally {
           setEspBusy(false);
         }
@@ -284,6 +347,8 @@ export default function StationPage() {
 
     if (recording) {
       recorder.current?.stop();
+      stopLiveTap.current?.();
+      stopLiveTap.current = null;
       return;
     }
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -291,6 +356,8 @@ export default function StationPage() {
     chunks.current = [];
     media.ondataavailable = (event) => chunks.current.push(event.data);
     media.onstop = async () => {
+      stopLiveTap.current?.();
+      stopLiveTap.current = null;
       setRecording(false);
       stream.getTracks().forEach((track) => track.stop());
       const form = new FormData();
@@ -308,12 +375,31 @@ export default function StationPage() {
         body: form,
       });
       const result = (await response.json()) as {
-        transcript: string;
-        voiceAssessment: string;
+        transcript?: string;
+        voiceAssessment?: string;
+        source?: Finding["voiceEngine"];
       };
-      await investigate(result.transcript, result.voiceAssessment);
+      const heard =
+        result.transcript?.trim() ||
+        grokText.trim() ||
+        "Voice report captured after scenario start.";
+      if (result.source === "grok-voice") {
+        setGrokLive(true);
+        setGrokText(heard);
+      }
+      await investigate(heard, result.voiceAssessment);
+      setFinding((current) =>
+        current
+          ? { ...current, voiceEngine: result.source, heard }
+          : current,
+      );
     };
     recorder.current = media;
+    setGrokText("");
+    setGrokLive(false);
+    stopLiveTap.current = createPcmTap(stream, (file) => {
+      void sendLiveChunk(file);
+    });
     media.start();
     setRecording(true);
   }
@@ -367,6 +453,22 @@ export default function StationPage() {
               )}
             >
               {espLinked ? "ESP32 linked" : "ESP32 offline"}
+            </span>
+            <span
+              className={cn(
+                "rounded-full px-3 py-1.5 text-xs font-medium",
+                grokLive
+                  ? "bg-emerald-500/15 text-emerald-500"
+                  : grokReady
+                    ? "bg-primary/15 text-primary"
+                    : "bg-muted text-muted-foreground",
+              )}
+            >
+              {grokLive
+                ? "Grok Voice live"
+                : grokReady
+                  ? "Grok Voice ready"
+                  : "Grok Voice offline"}
             </span>
             <ThemeToggle />
             <span
@@ -434,6 +536,15 @@ export default function StationPage() {
               }
               placeholder="Just ask me anything"
             />
+            {recording || grokText ? (
+              <p className="mt-2 truncate text-xs text-muted-foreground">
+                {grokLive
+                  ? `Grok Voice heard: ${grokText || "listening…"}`
+                  : grokReady
+                    ? "Grok Voice is capturing this report…"
+                    : "Recording locally…"}
+              </p>
+            ) : null}
           </div>
           <button
             type="button"
@@ -497,6 +608,11 @@ export default function StationPage() {
                   >
                     {finding.severity === "high" ? "High priority" : "Monitoring"}
                   </span>
+                  {finding.voiceEngine === "grok-voice" ? (
+                    <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-medium text-emerald-500">
+                      Heard by Grok Voice
+                    </span>
+                  ) : null}
                   <Button
                     variant="ghost"
                     size="icon-sm"
@@ -510,9 +626,41 @@ export default function StationPage() {
             </div>
             {finding ? (
               <div>
-                <p className="whitespace-pre-wrap text-sm leading-6">
-                  {finding.text.replaceAll("## ", "").replaceAll("**", "")}
-                </p>
+                {finding.heard && finding.voiceEngine === "grok-voice" ? (
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    Grok Voice heard: {finding.heard}
+                  </p>
+                ) : null}
+                {finding.possibleConcerns?.length ? (
+                  <div className="space-y-3 text-sm leading-6">
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground">
+                        Possible concerns
+                      </p>
+                      <ul className="mt-1 list-disc space-y-1 pl-4">
+                        {finding.possibleConcerns.map((concern) => (
+                          <li key={concern}>{concern}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    {finding.recommendedActions?.length ? (
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground">
+                          Immediate actions
+                        </p>
+                        <ul className="mt-1 list-disc space-y-1 pl-4">
+                          {finding.recommendedActions.map((action) => (
+                            <li key={action}>{action}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="whitespace-pre-wrap text-sm leading-6">
+                    {finding.text.replaceAll("## ", "").replaceAll("**", "")}
+                  </p>
+                )}
                 <div className="mt-4 flex flex-wrap gap-2">
                   {finding.citations.map((citation) => (
                     <span
