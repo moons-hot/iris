@@ -34,7 +34,8 @@ Name the critical metrics that are off baseline or elevated right now (only the 
 Close with an explanation of the historical / OSDR-style testing you used from the onboard evidence packet (citation IDs such as EVID-OSDR-014, EVID-HRR-095). Say how the current report and event context match — or do not match — those prior cases. Tie that match/mismatch to the live event mode (mild vs dire) and space-weather signals such as solar flares when relevant. Do not invent new study IDs.
 
 ## Speak aloud
-Exactly 4 or 5 complete sentences the crew hears on the speakers. Finish every sentence. Do NOT stop mid-sentence. Do NOT recite vitals or read a metrics list.
+Exactly 4 or 5 complete sentences the crew hears on the speakers. This section is the ONLY text that will be spoken aloud — Predictions, causes, and Historical analysis are screen-only and must not be duplicated here as a long dump.
+Finish every sentence. Do NOT stop mid-sentence. Do NOT recite vitals or read a metrics list.
 Hit these points, in order:
 1) Causal link: connect the reported symptoms to the most relevant environmental or telemetry signal (possible cause only — never a diagnosis).
 2) Prediction: what that pattern suggests next (monitor vs escalate).
@@ -137,7 +138,11 @@ export async function POST(request: Request) {
     source: "grok" | "onboard-demo";
     modelWarning?: string;
   }) {
-    const speak = payload.speak || investigationToSpeak(payload.text);
+    // Speakers get Speak aloud only — never Predictions / other screen sections.
+    const speak =
+      investigationToSpeak(payload.text) ||
+      payload.speak.trim() ||
+      investigationToSpeak(fallback.text);
     const severity = fallback.severity === "high" ? "high" : "monitor";
     const log = await logCrewAndIris({
       channel,

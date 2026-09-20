@@ -18,7 +18,7 @@ import {
 } from "@/lib/esp32-serial";
 import { createPcmTap } from "@/lib/astronaut-mic";
 import { startBrowserStt, type BrowserSttSession } from "@/lib/browser-stt";
-import { truncateAtSentence, investigationSections } from "@/lib/speak-text";
+import { investigationSections, investigationToSpeak } from "@/lib/speak-text";
 import { mergeLiveTranscript } from "@/lib/voice-wave";
 import { pcm16ToWav } from "@/lib/usb-voice";
 
@@ -176,7 +176,7 @@ export default function StationPage() {
     }
 
     async function speak(text: string) {
-        const spoken = truncateAtSentence(text);
+        const spoken = text.replace(/\s+/g, " ").trim();
         if (!spoken) return;
         console.log("[iris downlink / bot says]", spoken);
         try {
@@ -296,14 +296,10 @@ export default function StationPage() {
                 heard: result.heard ?? report.trim(),
             });
             setMessage("");
-            const spoken = truncateAtSentence(
+            const spoken =
                 result.speak?.trim() ||
-                    result.text
-                        ?.replace(/[#*_`[\]]/g, " ")
-                        .replace(/\s+/g, " ")
-                        .trim() ||
-                    "",
-            );
+                investigationToSpeak(result.text ?? "") ||
+                "";
             if (spoken) await speak(spoken);
             await refresh();
         } finally {

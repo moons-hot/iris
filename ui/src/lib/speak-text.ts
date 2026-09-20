@@ -1,15 +1,18 @@
-/** Cabin speaker briefing: prefer full sentences (up to 5). Never cut mid-sentence. */
-const DEFAULT_SPEAK_MAX_SENTENCES = 5;
-/** Soft length guide only — a long first sentence is kept whole. */
-const DEFAULT_SPEAK_MAX_CHARS = 2000;
-
-/** Prefer a dedicated Speak section when Grok provides one. */
+/** Prefer a dedicated Speak aloud section when Grok provides one. */
 export function extractSpeakSection(markdown: string): string | null {
-  const match = markdown.match(
-    /##\s*Speak(?:\s+aloud)?\s*\r?\n+([\s\S]*?)(?=\r?\n##\s|$)/i,
+  // ## Speak aloud / # Speak / ### Speak aloud:
+  const heading = markdown.match(
+    /(?:^|\n)\s{0,3}#{1,6}\s*Speak(?:\s+aloud)?\s*:?\s*\r?\n+([\s\S]*?)(?=\r?\n\s{0,3}#{1,6}\s|$)/i,
   );
-  const body = match?.[1]?.trim();
-  return body || null;
+  if (heading?.[1]?.trim()) return heading[1].trim();
+
+  // **Speak aloud** fallback some models use
+  const bold = markdown.match(
+    /(?:^|\n)\s*\*\*Speak(?:\s+aloud)?\*\*\s*:?\s*\r?\n+([\s\S]*?)(?=\r?\n\s*(?:#{1,6}|\*\*[A-Za-z])|$)/i,
+  );
+  if (bold?.[1]?.trim()) return bold[1].trim();
+
+  return null;
 }
 
 function extractNamedSection(markdown: string, heading: RegExp): string[] {
@@ -82,14 +85,13 @@ function sentencesOf(text: string): string[] {
 }
 
 /**
- * Keep spoken replies to a few full sentences.
+ * Soft trim for Mission Control one-liners only.
  * Never hard-slices mid-sentence — only drops later complete sentences.
- * If the first sentence alone is longer than maxChars, it is still kept whole.
  */
 export function truncateAtSentence(
   text: string,
-  maxChars = DEFAULT_SPEAK_MAX_CHARS,
-  maxSentences = DEFAULT_SPEAK_MAX_SENTENCES,
+  maxChars = 220,
+  maxSentences = 1,
 ): string {
   const cleaned = text.replace(/\s+/g, " ").trim();
   if (!cleaned) return cleaned;
@@ -102,8 +104,6 @@ export function truncateAtSentence(
   for (const sentence of sentences) {
     if (count >= maxSentences) break;
     const next = out ? `${out} ${sentence}` : sentence;
-    // Soft budget: never add another sentence past the guide, but always keep
-    // at least the first complete sentence even if it is long.
     if (out && next.length > maxChars) break;
     out = next;
     count += 1;
@@ -111,15 +111,14 @@ export function truncateAtSentence(
   return out;
 }
 
-/** Turn investigation markdown into a short spoken briefing for TTS. */
-export function investigationToSpeak(
-  markdown: string,
-  maxChars = DEFAULT_SPEAK_MAX_CHARS,
-  maxSentences = DEFAULT_SPEAK_MAX_SENTENCES,
-): string {
+/**
+ * Cabin TTS text: ONLY the Speak aloud section, full sentences, no hard cap.
+ * Never falls back to Predictions / other screen sections.
+ */
+export function investigationToSpeak(markdown: string): string {
   const dedicated = extractSpeakSection(markdown);
-  const prose = stripMarkdownToProse(dedicated ?? markdown);
-  return truncateAtSentence(prose, maxChars, maxSentences);
+  if (!dedicated) return "";
+  return stripMarkdownToProse(dedicated);
 }
 
 /** Split long spoken replies into TTS-friendly chunks without cutting mid-sentence. */
@@ -133,7 +132,6 @@ export function splitSpeakChunks(text: string, maxChars = 280): string[] {
   let current = "";
   for (const sentence of sentences) {
     if (!current) {
-      // Keep an oversized sentence whole rather than splitting it.
       current = sentence;
       continue;
     }
@@ -148,8 +146,6 @@ export function splitSpeakChunks(text: string, maxChars = 280): string[] {
   return chunks;
 }
 
-const COMMS_SUMMARY_MAX = 220;
-
 /**
  * One-line Mission Control brief of what Iris told the astronaut.
  * High-priority replies are prefixed with [ALERT] for ground triage.
@@ -160,7 +156,7 @@ export function commsAiResponseSummary(input: {
   crewReport?: string;
 }): string {
   const briefing = (
-    truncateAtSentence(input.speak, COMMS_SUMMARY_MAX, 1) ||
+    truncateAtSentence(input.speak, 220, 1) ||
     "Iris replied to the crew report."
   ).replace(/\u2014|\u2013/g, "-");
   const crew = input.crewReport?.replace(/\s+/g, " ").trim();

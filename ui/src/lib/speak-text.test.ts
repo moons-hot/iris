@@ -3,57 +3,42 @@ import { describe, expect, it } from "vitest";
 import {
   commsAiResponseSummary,
   investigationToSpeak,
-  splitSpeakChunks,
 } from "./speak-text";
 
 describe("speak-text", () => {
-  it("strips markdown into spoken prose", () => {
+  it("returns empty when there is no Speak aloud section", () => {
     const speak = investigationToSpeak(
-      "## Observed\n\n**Heart rate** is up.\n\n- Sit down\n\nSee [EVID](https://example.com).",
+      "## Predictions\n\n**Heart rate** is up.\n\n- Sit down\n\nSee [EVID](https://example.com).",
     );
-    expect(speak).toContain("Heart rate is up");
-    expect(speak).toContain("Sit down");
-    expect(speak).toContain("EVID");
-    expect(speak).not.toContain("**");
-    expect(speak).not.toContain("##");
+    expect(speak).toBe("");
   });
 
-  it("prefers a short Speak aloud section", () => {
+  it("speaks ONLY the Speak aloud section, never Predictions", () => {
     const speak = investigationToSpeak(
-      "## Observed\n\nLong vitals dump that should not be read aloud.\n\n## Speak aloud\n\nI heard your headache. Sit supported and we will recheck pulse in five minutes.",
+      "## Predictions\n\nLong vitals dump that should not be read aloud.\n\n## Speak aloud\n\nI heard your headache. Sit supported and we will recheck pulse in five minutes.",
     );
     expect(speak).toBe(
       "I heard your headache. Sit supported and we will recheck pulse in five minutes.",
     );
     expect(speak).not.toContain("vitals dump");
+    expect(speak).not.toContain("Predictions");
   });
 
-  it("caps spoken length at sentence boundaries", () => {
+  it("does not hard-cap Speak aloud sentences", () => {
     const speak = investigationToSpeak(
-      "First sentence is fine. Second sentence is also fine. Third sentence should often be cut when the budget is tight.",
-      70,
-      5,
+      "## Speak aloud\n\nOne. Two. Three. Four. Five. Six is still spoken.",
     );
-    expect(speak).toBe("First sentence is fine. Second sentence is also fine.");
-    expect(speak.endsWith(".")).toBe(true);
-    expect(speak).not.toContain("Third");
+    expect(speak).toBe("One. Two. Three. Four. Five. Six is still spoken.");
   });
 
-  it("never hard-cuts mid-sentence even when the first sentence is long", () => {
+  it("never stops mid-sentence in Speak aloud", () => {
     const long =
       "This is one long complete sentence that clearly exceeds seventy characters all by itself.";
-    const speak = investigationToSpeak(`${long} Second is dropped.`, 70, 5);
-    expect(speak).toBe(long);
-    expect(speak.endsWith(".")).toBe(true);
-    expect(speak).not.toContain("Second");
-  });
-
-  it("keeps cabin briefings to at most five sentences", () => {
     const speak = investigationToSpeak(
-      "## Speak aloud\n\nOne. Two. Three. Four. Five. Six should be dropped.",
+      `## Speak aloud\n\n${long} Second sentence stays too.`,
     );
-    expect(speak).toBe("One. Two. Three. Four. Five.");
-    expect(speak).not.toContain("Six");
+    expect(speak).toBe(`${long} Second sentence stays too.`);
+    expect(speak.endsWith(".")).toBe(true);
   });
 
   it("parses prediction, historical, and cause sections", async () => {

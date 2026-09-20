@@ -224,7 +224,7 @@ describe("Iris onboard context", () => {
       .split(/[.!?]+/)
       .map((s) => s.trim())
       .filter(Boolean);
-    expect(speakSentences.length).toBeLessThanOrEqual(5);
     expect(speakSentences.at(-1)).toMatch(/OSDR|historical/i);
+    expect(reply.speak).not.toMatch(/## Predictions/i);
   });
 });
