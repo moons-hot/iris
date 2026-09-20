@@ -920,7 +920,7 @@ export default function StationPage() {
 
                     <Panel className="lg:col-span-4">
                         <p className="mb-4 text-sm text-muted-foreground">
-                            Habitat
+                            Inside cabin
                         </p>
                         <div className="grid grid-cols-2 gap-x-6 gap-y-5">
                             {snapshot.cabin.map((metric) => (

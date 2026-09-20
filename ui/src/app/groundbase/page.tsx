@@ -299,7 +299,7 @@ export default function GroundbasePage() {
           </Panel>
 
           <Panel className="lg:col-span-4">
-            <p className="mb-4 text-sm text-muted-foreground">Habitat</p>
+            <p className="mb-4 text-sm text-muted-foreground">Inside cabin</p>
             <div className="grid grid-cols-2 gap-x-6 gap-y-5">
               {snapshot.cabin.map((metric) => (
                 <MetricTile key={metric.label} metric={metric} />
