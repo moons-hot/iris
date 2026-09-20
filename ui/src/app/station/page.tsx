@@ -7,6 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/utils";
+import {
+  IrisEspLink,
+  mp3BlobToMonoPcm,
+} from "@/lib/esp32-serial";
 
 type Metric = {
   label: string;
@@ -129,8 +133,11 @@ export default function StationPage() {
   const [recording, setRecording] = useState(false);
   const [logs, setLogs] = useState<CommsLog[]>([]);
   const [logsConfigured, setLogsConfigured] = useState(false);
+  const [espLinked, setEspLinked] = useState(false);
+  const [espBusy, setEspBusy] = useState(false);
   const recorder = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
+  const esp = useRef<IrisEspLink | null>(null);
 
   const refreshLogs = useCallback(async () => {
     const response = await fetch("/api/logs");
@@ -162,12 +169,30 @@ export default function StationPage() {
       body: JSON.stringify({ text }),
     });
     const type = response.headers.get("Content-Type") ?? "";
+    if (response.ok && type.startsWith("audio/") && esp.current?.connected) {
+      const pcm = await mp3BlobToMonoPcm(await response.blob());
+      await esp.current.playPcm(pcm);
+      return;
+    }
     if (response.ok && type.startsWith("audio/")) {
       const url = URL.createObjectURL(await response.blob());
       new Audio(url).play().catch(() => undefined);
     } else if ("speechSynthesis" in window) {
       window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
     }
+  }
+
+  async function connectEsp() {
+    if (esp.current?.connected) {
+      await esp.current.disconnect();
+      esp.current = null;
+      setEspLinked(false);
+      return;
+    }
+    const link = new IrisEspLink();
+    await link.connect();
+    esp.current = link;
+    setEspLinked(true);
   }
 
   async function investigate(report = message, voiceAssessment?: string) {
@@ -204,6 +229,44 @@ export default function StationPage() {
   }
 
   async function toggleRecording() {
+    if (esp.current?.connected) {
+      if (espBusy) return;
+      if (recording) {
+        setEspBusy(true);
+        try {
+          const wav = await esp.current.stopRecording();
+          setRecording(false);
+          const form = new FormData();
+          form.set(
+            "audio",
+            new File([wav], "astronaut-report.wav", { type: "audio/wav" }),
+          );
+          form.set("crewId", "A01");
+          form.set("sentAt", new Date().toISOString());
+          const response = await fetch("/api/voice", {
+            method: "POST",
+            body: form,
+          });
+          const result = (await response.json()) as {
+            transcript: string;
+            voiceAssessment: string;
+          };
+          await investigate(result.transcript, result.voiceAssessment);
+        } finally {
+          setEspBusy(false);
+        }
+        return;
+      }
+      setEspBusy(true);
+      try {
+        await esp.current.startRecording();
+        setRecording(true);
+      } finally {
+        setEspBusy(false);
+      }
+      return;
+    }
+
     if (recording) {
       recorder.current?.stop();
       return;
@@ -272,7 +335,24 @@ export default function StationPage() {
               <p className="text-xs text-muted-foreground">Onboard crew station</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void connectEsp().catch(() => undefined)}
+            >
+              {espLinked ? "Disconnect ESP32" : "Connect ESP32"}
+            </Button>
+            <span
+              className={cn(
+                "rounded-full px-3 py-1.5 text-xs font-medium",
+                espLinked
+                  ? "bg-primary/15 text-primary"
+                  : "bg-muted text-muted-foreground",
+              )}
+            >
+              {espLinked ? "ESP32 linked" : "ESP32 offline"}
+            </span>
             <ThemeToggle />
             <span
               className={cn(
@@ -343,9 +423,10 @@ export default function StationPage() {
           <button
             type="button"
             onClick={() => void toggleRecording()}
+            disabled={loading || espBusy}
             aria-label="Record voice report"
             className={cn(
-              "grid size-24 shrink-0 place-items-center self-center rounded-full shadow-[var(--mic-shadow)] transition md:self-auto",
+              "grid size-24 shrink-0 place-items-center self-center rounded-full shadow-[var(--mic-shadow)] transition md:self-auto disabled:opacity-60",
               recording
                 ? "bg-destructive text-white"
                 : "bg-primary text-primary-foreground hover:bg-primary/85",
