@@ -139,17 +139,26 @@ export default function GroundbasePage() {
     <main className="min-h-screen px-4 py-6 md:px-8 md:py-8">
       <div className="mx-auto flex max-w-[1400px] flex-col gap-5">
         <header className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="grid size-12 place-items-center rounded-full bg-foreground text-background">
+          <Link
+            href="/station"
+            className="flex items-center gap-3 rounded-full outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <div
+              className="grid size-12 place-items-center rounded-full"
+              style={{
+                background: "var(--iris-mark)",
+                color: "var(--iris-mark-fg)",
+              }}
+            >
               <span className="font-serif text-lg leading-none">Ir</span>
             </div>
             <div>
               <p className="text-sm font-medium">Iris</p>
               <p className="text-xs text-muted-foreground">
-                Groundbase mission control
+                Mission Control
               </p>
             </div>
-          </div>
+          </Link>
           <div className="flex items-center gap-3">
             <Button asChild variant="secondary">
               <Link href="/station">Onboard station</Link>
@@ -392,7 +401,9 @@ export default function GroundbasePage() {
                             {log.crewId} · {log.direction}
                           </p>
                         </td>
-                        <td className="py-3 align-top text-xs">{log.channel}</td>
+                        <td className="py-3 align-top text-xs">
+                          {log.channel === "voice" ? "voiced" : log.channel}
+                        </td>
                         <td className="py-3 align-top font-mono text-xs tabular-nums">
                           {formatClock(log.sentAt)}
                         </td>

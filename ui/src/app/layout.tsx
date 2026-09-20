@@ -30,7 +30,7 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         <Script id="iris-theme" strategy="beforeInteractive">
-          {`(function(){try{var t=localStorage.getItem("iris-theme");if(t!=="light"&&t!=="dark"){t=window.matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}document.documentElement.classList.toggle("dark",t==="dark");document.documentElement.style.colorScheme=t}catch(e){}})();`}
+          {`(function(){try{var t=localStorage.getItem("iris-theme");if(t!=="light"&&t!=="dark"){t="light"}document.documentElement.classList.toggle("dark",t==="dark");document.documentElement.style.colorScheme=t}catch(e){document.documentElement.classList.remove("dark");document.documentElement.style.colorScheme="light"}})();`}
         </Script>
         <div className="iris-stars" aria-hidden="true" />
         <div className="iris-app">{children}</div>

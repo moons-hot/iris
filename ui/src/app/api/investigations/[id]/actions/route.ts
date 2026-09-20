@@ -9,18 +9,31 @@ import { parseSentAt, recordCommsLog } from "@/lib/tiger";
 export const runtime = "nodejs";
 
 const system = `You are Iris, an onboard health investigation assistant for long-duration spaceflight.
-You receive a voice report plus astronaut telemetry, spacecraft cabin readings, and space-environment readings.
-Do not diagnose or state that one factor caused a condition. Use uncertainty language and compare against the astronaut's personal baseline.
-Follow observe -> compare -> identify missing evidence -> collect -> reevaluate.
-Return markdown with these headings:
-- Observed
-- Possible concerns to investigate
-- Immediate actions
-- What would reduce uncertainty next
+You receive a voice report plus astronaut telemetry, spacecraft cabin readings, space-environment readings, and the active mission event mode (mild symptoms watch vs dire watch, including solar-flare / radiation context when present).
+Do not diagnose or claim one factor caused a condition. Use uncertainty language and compare against the astronaut's personal baseline.
+Interpret the transcript with the metrics — do not dump a raw vitals list as the main answer.
+
+Return markdown with ONLY these headings, in this order:
+- Predictions
+- What could be causing these symptoms
+- Historical analysis
 - Speak aloud
-Keep Observed through next-steps concise for the screen (short bullets, not a full vitals dump).
-The final "## Speak aloud" section is what the crew hears: at most 5 short sentences (under ~620 characters). It MUST use the voice transcript together with the live metrics. Cover: (1) what you heard, (2) how key vitals/cabin/space readings compare to personal baseline, (3) what could plausibly be contributing — possibilities only, not a diagnosis, (4) whether this looks critical right now or monitor-level, with any brief historical/context cue if useful, (5) one concrete next check or action. Calm tone. No markdown, no bullet lists, no citation IDs, no reading every vital.
-Preserve citation IDs already in the context in the non-speak sections only.
+
+Write each screen section as 1–2 short prose paragraphs (not bullet lists). Keep each section scannable and specific.
+
+## Predictions
+What may happen next if this pattern continues (monitor vs escalate). Factor in whether the station is in a mild or dire event window and any active solar-flare / radiation context.
+
+## What could be causing these symptoms
+Name the critical metrics that are off baseline or elevated right now (only the ones that matter for this report). Explicitly relate each chosen metric to the astronaut's stated symptoms or question — e.g. how cabin CO₂, SpO₂, heart rate, blood pressure, hull radiation, or flare status could connect to what they said. Stay tentative (possible, consistent with, warrants checking).
+
+## Historical analysis
+Close with an explanation of the historical / OSDR-style testing you used from the onboard evidence packet (citation IDs such as EVID-OSDR-014, EVID-HRR-095). Say how the current report and event context match — or do not match — those prior cases. Tie that match/mismatch to the live event mode (mild vs dire) and space-weather signals such as solar flares when relevant. Do not invent new study IDs.
+
+## Speak aloud
+What the crew hears on the laptop speakers (at most 5 short sentences, under ~620 characters). Interpret — do NOT recite every number. Cover: what you heard; the most important symptom–metric links; whether history matches this event; mild vs dire / flare context; one next check. Calm tone. No markdown, no bullets, no citation IDs.
+
+Preserve citation IDs in the non-speak sections only.
 Use the NASA Human Research Roadmap Risk 95 reference when relevant: https://humanresearchroadmap.nasa.gov/Risks/risk.aspx?i=95.`;
 
 function telemetryBlock(
@@ -49,6 +62,7 @@ export async function POST(request: Request) {
     telemetry?: Snapshot;
     sentAt?: string;
     vesselId?: string;
+    channel?: "typed" | "voice";
   };
   if (!body.message?.trim()) {
     return Response.json(
@@ -57,13 +71,18 @@ export async function POST(request: Request) {
     );
   }
 
-  const log = await recordCommsLog({
-    sentAt: parseSentAt(body.sentAt, receivedAt),
-    receivedAt,
-    channel: "typed",
-    vesselId: body.vesselId ?? "asteria",
-    summary: body.message.trim(),
-  });
+  const channel = body.channel === "voice" ? "voice" : "typed";
+  // Voice uplink already stamps /api/voice — don't double-log as typed.
+  const log =
+    channel === "voice"
+      ? null
+      : await recordCommsLog({
+          sentAt: parseSentAt(body.sentAt, receivedAt),
+          receivedAt,
+          channel: "typed",
+          vesselId: body.vesselId ?? "asteria",
+          summary: body.message.trim(),
+        });
 
   const fallback = investigationReply(
     body.message,
@@ -96,13 +115,14 @@ export async function POST(request: Request) {
             role: "user",
             content: `Voice transcript: ${body.message}
 Voice assessment: ${body.voiceAssessment ?? "not available"}
+Active event mode: ${body.telemetry?.scenario ?? "unknown"} (mild = symptom watch, dire = high-priority / flare-capable window)
 
 ${packetText}
 
 Onboard investigation context:
 ${fallback.text}
 
-Preserve citation IDs already in the context. Keep possible concerns as investigations, not diagnoses.`,
+Call out the critical metrics that matter for this report and how they relate to the astronaut's words. End Historical analysis by stating whether OSDR/HRR evidence matches this event or not. Keep possible concerns as investigations, not diagnoses. Preserve citation IDs already in the context.`,
           },
         ],
       }),

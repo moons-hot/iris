@@ -794,12 +794,34 @@ export function investigationReply(
     possibleConcerns,
     recommendedActions,
     telemetry: packet,
-    text: `## Iris investigation update\n\n**Observed** — ${observations}\n\n**Possible concerns to investigate** — ${possibleConcerns.join(" ")}\n\n**Immediate actions** — ${recommendedActions.join(" ")}\n\n**Working interpretation** — ${hypothesis}\n\n**Historical context** — ${evidence.map((item) => `[${item.id}] ${item.snippet}`).join(" ")}`,
+    text: `## Predictions
+${
+  dire
+    ? "If symptoms stay co-timed with the radiation and flare window, treat this as a high-priority safety investigation and prepare shielding plus medical-lead handoff. Without a shielded blood-pressure recheck, uncertainty about radiation-associated risk stays high."
+    : mild
+      ? "If vitals stay off baseline with the reported symptoms, expect a monitor-level pattern that needs a quiet recheck in five minutes. A second set of pulse, blood pressure, and symptom notes will tighten the next prediction."
+      : "If symptoms continue while telemetry stays near baseline, expect an incomplete picture that still warrants follow-up rather than dismissal. Another quiet measurement pass will clarify whether this stays monitor-level."
+}
+
+## What could be causing these symptoms
+${possibleConcerns.join(" ")} ${hypothesis}
+
+## Historical analysis
+Using onboard OSDR/HRR extracts (${evidence.map((item) => item.id).join(", ")}): ${evidence.map((item) => item.snippet).join(" ")} For this ${dire ? "dire" : mild ? "mild" : "nominal"} event window${dire ? " with active solar-weather pressure" : ""}, that history ${dire ? "aligns with prior co-timed radiation and neuro-ocular style reports, so we treat the match as a safety investigation rather than proof of mechanism" : mild ? "partially matches nonspecific cabin-air and exertion patterns more than a clear radiation signature" : "does not yet match a strong historical hazard pattern because live readings are still near personal baseline"}.
+
+## Speak aloud
+${
+  dire
+    ? "I heard your report and the timing with habitat and space readings looks high-priority in this dire window. History from OSDR-style radiation cohorts and Risk 95 is a partial match for co-timed symptoms during flare pressure, so we investigate rather than diagnose. Move to shielding, notify the crew medical lead, and we will recheck blood pressure once you are shielded."
+    : mild
+      ? "I heard your report. The critical off-baseline metrics can fit cabin-air, hydration, or exertion stress with what you described — possibilities only. OSDR and cabin history only partly match a mild watch pattern until a quiet recheck. Sit supported, hydrate, and we will repeat the key vitals in five minutes."
+      : "I heard your report. Telemetry is near your baseline, so the numbers alone do not explain how you feel and this does not look critical from readings alone. Historical OSDR cases do not strongly match yet. Sit supported, recheck pulse after five quiet minutes, and tell me if anything changes."
+}`,
     speak: dire
-      ? "I heard your report and the readings look high-priority right now. Vitals and the space-weather spike line up in time with what you described, which warrants shielding and medical-lead notification, not a diagnosis. Historical Risk 95 context treats co-timed radiation and neuro-ocular style symptoms as a safety investigation. Sit supported, move to the designated protocol, and we will recheck blood pressure once you are shielded."
+      ? "I heard your report and the timing with habitat and space readings looks high-priority in this dire window. History from OSDR-style radiation cohorts and Risk 95 is a partial match for co-timed symptoms during flare pressure, so we investigate rather than diagnose. Move to shielding, notify the crew medical lead, and we will recheck blood pressure once you are shielded."
       : mild
-        ? "I heard your report. Pulse, blood pressure, temperature, SpO2, breathing rate, and cabin CO2 are off your personal baseline in a pattern that can fit exertion, hydration, or cabin-air issues — possibilities only. This looks monitor-level rather than an immediate critical emergency from telemetry alone. Sit supported, hydrate, stop nonessential exertion, and we will recheck the same vitals after five quiet minutes."
-        : "I heard your report. Current measurements are close to your personal baseline, so telemetry alone does not explain the symptoms yet and this does not look critical from the numbers right now. We should still investigate how you feel rather than dismiss it. Sit supported, confirm hydration and your last meal, repeat pulse and blood pressure after five quiet minutes, and tell me if anything changes.",
+        ? "I heard your report. The critical off-baseline metrics can fit cabin-air, hydration, or exertion stress with what you described — possibilities only. OSDR and cabin history only partly match a mild watch pattern until a quiet recheck. Sit supported, hydrate, and we will repeat the key vitals in five minutes."
+        : "I heard your report. Telemetry is near your baseline, so the numbers alone do not explain how you feel and this does not look critical from readings alone. Historical OSDR cases do not strongly match yet. Sit supported, recheck pulse after five quiet minutes, and tell me if anything changes.",
     citations: evidence.map((item) => ({
       id: item.id,
       title: item.title,

@@ -14,13 +14,11 @@ import { cn } from "@/lib/utils";
 import {
     IrisEspLink,
     IRIS_PCM_RATE,
-    mp3BlobToMonoPcm,
     applyPcm16Gain,
-    toArrayBuffer,
 } from "@/lib/esp32-serial";
 import { createPcmTap } from "@/lib/astronaut-mic";
 import { startBrowserStt, type BrowserSttSession } from "@/lib/browser-stt";
-import { truncateAtSentence } from "@/lib/speak-text";
+import { truncateAtSentence, investigationSections } from "@/lib/speak-text";
 import { mergeLiveTranscript } from "@/lib/voice-wave";
 import { pcm16ToWav } from "@/lib/usb-voice";
 
@@ -137,25 +135,9 @@ export default function StationPage() {
             const type = (
                 response.headers.get("Content-Type") ?? ""
             ).toLowerCase();
-            if (
-                response.ok &&
-                type.startsWith("audio/") &&
-                esp.current?.connected
-            ) {
-                const blob = await response.blob();
-                const pcm = type.includes("pcm")
-                    ? toArrayBuffer(
-                          applyPcm16Gain(
-                              new Uint8Array(await blob.arrayBuffer()),
-                          ),
-                      )
-                    : await mp3BlobToMonoPcm(blob);
-                await esp.current.playPcm(pcm);
-                return;
-            }
+            // Laptop speakers only — skip ESP PCM playback for cleaner/faster audio.
             if (response.ok && type.startsWith("audio/")) {
                 const blob = await response.blob();
-                // Raw PCM needs a WAV wrapper for the browser Audio element.
                 const playable = type.includes("pcm")
                     ? pcm16ToWav(
                           applyPcm16Gain(
@@ -168,8 +150,14 @@ export default function StationPage() {
                 const url = URL.createObjectURL(playable);
                 await new Promise<void>((resolve) => {
                     const audio = new Audio(url);
-                    audio.onended = () => resolve();
-                    audio.onerror = () => resolve();
+                    audio.onended = () => {
+                        URL.revokeObjectURL(url);
+                        resolve();
+                    };
+                    audio.onerror = () => {
+                        URL.revokeObjectURL(url);
+                        resolve();
+                    };
                     audio.play().catch(() => resolve());
                 });
                 return;
@@ -185,17 +173,6 @@ export default function StationPage() {
             }
         } catch (error) {
             console.error("[iris downlink / speak failed]", error);
-            // Keep the link up when possible — auto-disconnect after TTS made the
-            // next Connect race a wedged play/receive state on the ESP.
-            try {
-                if (esp.current?.connected) await esp.current.ping();
-            } catch {
-                if (esp.current) {
-                    await esp.current.disconnect().catch(() => undefined);
-                    esp.current = null;
-                    setEspLinked(false);
-                }
-            }
         }
     }
 
@@ -213,7 +190,7 @@ export default function StationPage() {
             setEspLinked(true);
             if (!link.hasAudio) {
                 window.alert(
-                    "ESP32 linked, but audio init failed. Check the codec seating and Serial Monitor for errors.",
+                    "IrisKey linked, but audio init failed. Check the codec seating and Serial Monitor for errors.",
                 );
             }
         } catch (error) {
@@ -223,12 +200,16 @@ export default function StationPage() {
             window.alert(
                 error instanceof Error
                     ? error.message
-                    : "Could not connect to ESP32 over Web Serial.",
+                    : "Could not connect to IrisKey over Web Serial.",
             );
         }
     }
 
-    async function investigate(report = message, voiceAssessment?: string) {
+    async function investigate(
+        report = message,
+        voiceAssessment?: string,
+        channel: "typed" | "voice" = "typed",
+    ) {
         if (!report.trim()) return;
         console.log("[iris uplink / crew said]", report.trim());
         if (voiceAssessment) {
@@ -244,6 +225,7 @@ export default function StationPage() {
                     voiceAssessment,
                     telemetry: snapshot,
                     sentAt: new Date().toISOString(),
+                    channel,
                 }),
             });
             const result = (await response.json()) as Finding;
@@ -332,7 +314,7 @@ export default function StationPage() {
                         );
                         return;
                     }
-                    await investigate(heard, result.voiceAssessment);
+                    await investigate(heard, result.voiceAssessment, "voice");
                     setFinding((current) =>
                         current
                             ? { ...current, voiceEngine: result.source, heard }
@@ -355,7 +337,7 @@ export default function StationPage() {
                     window.alert(
                         error instanceof Error
                             ? error.message
-                            : "ESP recording failed — reconnect and try again.",
+                            : "IrisKey recording failed — reconnect and try again.",
                     );
                 } finally {
                     setEspBusy(false);
@@ -380,7 +362,7 @@ export default function StationPage() {
                 window.alert(
                     error instanceof Error
                         ? error.message
-                        : "Could not start ESP recording — reconnect and try again.",
+                        : "Could not start IrisKey recording — reconnect and try again.",
                 );
             } finally {
                 setEspBusy(false);
@@ -441,7 +423,7 @@ export default function StationPage() {
                 setGrokLive(true);
                 setGrokText(heard);
             }
-            await investigate(heard, result.voiceAssessment);
+            await investigate(heard, result.voiceAssessment, "voice");
             setFinding((current) =>
                 current
                     ? { ...current, voiceEngine: result.source, heard }
@@ -485,8 +467,17 @@ export default function StationPage() {
         <main className="min-h-screen px-4 py-6 md:px-8 md:py-8">
             <div className="mx-auto flex max-w-[1400px] flex-col gap-5">
                 <header className="flex flex-wrap items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                        <div className="grid size-12 place-items-center rounded-full bg-foreground text-background">
+                    <Link
+                        href="/station"
+                        className="flex items-center gap-3 rounded-full outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                        <div
+                            className="grid size-12 place-items-center rounded-full"
+                            style={{
+                                background: "var(--iris-mark)",
+                                color: "var(--iris-mark-fg)",
+                            }}
+                        >
                             <span className="font-serif text-lg leading-none">
                                 Ir
                             </span>
@@ -497,10 +488,10 @@ export default function StationPage() {
                                 Onboard crew station
                             </p>
                         </div>
-                    </div>
+                    </Link>
                     <div className="flex flex-wrap items-center gap-3">
                         <Button asChild variant="secondary">
-                            <Link href="/groundbase">Groundbase</Link>
+                            <Link href="/groundbase">Mission Control</Link>
                         </Button>
                         <Button
                             variant="outline"
@@ -509,7 +500,7 @@ export default function StationPage() {
                                 void connectEsp().catch(() => undefined)
                             }
                         >
-                            {espLinked ? "Disconnect ESP32" : "Connect ESP32"}
+                            {espLinked ? "Disconnect IrisKey" : "Connect IrisKey"}
                         </Button>
                         <span
                             className={cn(
@@ -519,23 +510,7 @@ export default function StationPage() {
                                     : "bg-muted text-muted-foreground",
                             )}
                         >
-                            {espLinked ? "ESP32 linked" : "ESP32 offline"}
-                        </span>
-                        <span
-                            className={cn(
-                                "rounded-full px-3 py-1.5 text-xs font-medium",
-                                grokLive
-                                    ? "bg-emerald-500/15 text-emerald-500"
-                                    : grokReady
-                                      ? "bg-primary/15 text-primary"
-                                      : "bg-muted text-muted-foreground",
-                            )}
-                        >
-                            {grokLive
-                                ? "Grok Voice live"
-                                : grokReady
-                                  ? "Grok Voice ready"
-                                  : "Grok Voice offline"}
+                            {espLinked ? "IrisKey linked" : "IrisKey offline"}
                         </span>
                         <ThemeToggle />
                         <span
@@ -565,84 +540,236 @@ export default function StationPage() {
                 </header>
 
                 <div className="flex flex-wrap items-center gap-3">
-                    <div className="grid size-[5.5rem] place-items-center rounded-full bg-card/90 text-center shadow-[var(--panel-shadow)]">
-                        <span className="text-2xl font-medium leading-none tabular-nums">
+                    <div className="flex size-[5.75rem] shrink-0 flex-col items-center justify-center rounded-full bg-card shadow-[var(--panel-shadow)]">
+                        <span className="text-[1.65rem] font-medium leading-none tabular-nums tracking-tight">
                             {snapshot.astronaut.missionDay}
                         </span>
-                        <span className="mt-1 text-[10px] tracking-wide text-muted-foreground uppercase">
-                            Mission day
+                        <span className="mt-1.5 text-center text-[9px] leading-3 tracking-[0.16em] text-muted-foreground uppercase">
+                            Days in
+                            <br />
+                            space
                         </span>
                     </div>
-                    <Button
-                        variant={
-                            snapshot.scenario === "mild"
-                                ? "default"
-                                : "secondary"
-                        }
-                        onClick={() => void selectScenario("mild")}
-                    >
-                        Mild symptoms
-                    </Button>
-                    <Button
-                        variant={dire ? "destructive" : "secondary"}
-                        className={
-                            dire
-                                ? "bg-destructive text-white hover:bg-destructive/90"
-                                : ""
-                        }
-                        onClick={() => void selectScenario("dire")}
-                    >
-                        Dire watch
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                            size="sm"
+                            variant="secondary"
+                            className={cn(
+                                "rounded-full",
+                                snapshot.scenario === "mild" &&
+                                    "bg-foreground text-background hover:bg-foreground/90",
+                            )}
+                            onClick={() => void selectScenario("mild")}
+                        >
+                            Simulate vitals drift
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            className={cn(
+                                "rounded-full border-destructive/40 text-destructive hover:bg-destructive/10",
+                                dire &&
+                                    "border-transparent bg-destructive text-white hover:bg-destructive/90",
+                            )}
+                            onClick={() => void selectScenario("dire")}
+                        >
+                            Simulate flare event
+                        </Button>
+                    </div>
                 </div>
 
-                <Panel className="flex flex-col gap-6 p-6 md:flex-row md:items-center md:gap-10">
-                    <div className="min-w-0 flex-1">
-                        <h2 className="font-serif text-3xl tracking-tight md:text-4xl">
-                            {loading
-                                ? "Looking into it…"
-                                : "Hey, how are you feeling?"}
-                        </h2>
-                        <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-                            You are the crew who needs help. Iris reads vitals,
-                            cabin air, suit pressure, and solar weather against
-                            your baseline, then names the next evidence to
-                            collect.
-                        </p>
-                        <Input
-                            className="mt-5"
-                            value={message}
-                            onChange={(event) => setMessage(event.target.value)}
-                            onKeyDown={(event) =>
-                                event.key === "Enter" && void investigate()
-                            }
-                            placeholder="Just ask me anything"
-                        />
-                        {recording || grokText ? (
-                            <p className="mt-2 truncate text-xs text-muted-foreground">
-                                {grokLive
-                                    ? `Grok Voice heard: ${grokText || "listening…"}`
-                                    : grokReady
-                                      ? "Grok Voice is capturing this report…"
-                                      : "Recording locally…"}
-                            </p>
-                        ) : null}
-                    </div>
-                    <button
-                        type="button"
-                        onClick={() => void toggleRecording()}
-                        disabled={loading || espBusy}
-                        aria-label="Record voice report"
-                        className={cn(
-                            "grid size-24 shrink-0 place-items-center self-center rounded-full shadow-[var(--mic-shadow)] transition md:self-auto disabled:opacity-60",
-                            recording
-                                ? "bg-destructive text-white"
-                                : "bg-primary text-primary-foreground hover:bg-primary/85",
-                        )}
-                    >
-                        <Mic className="size-8" />
-                    </button>
-                </Panel>
+                <div className="sticky top-0 z-20 -mx-1 bg-background/90 px-1 pb-2 backdrop-blur-md">
+                    <Panel className="flex flex-col gap-5 p-6">
+                        <div className="flex flex-col gap-6 md:flex-row md:items-start md:gap-10">
+                            <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div>
+                                        <h2 className="font-serif text-3xl tracking-tight md:text-4xl">
+                                            {loading
+                                                ? "Looking into it…"
+                                                : "Hey, how are you feeling?"}
+                                        </h2>
+                                        <p className="mt-2 max-w-xl text-sm text-muted-foreground">
+                                            Tell Iris how you feel. It compares
+                                            your report with your live vitals,
+                                            cabin air, and space weather against
+                                            your personal baseline, then names
+                                            what to check next.
+                                        </p>
+                                    </div>
+                                </div>
+                                <Input
+                                    className="mt-5"
+                                    value={message}
+                                    onChange={(event) =>
+                                        setMessage(event.target.value)
+                                    }
+                                    onKeyDown={(event) =>
+                                        event.key === "Enter" &&
+                                        void investigate()
+                                    }
+                                    placeholder="Just ask me anything"
+                                />
+                                {recording || grokText ? (
+                                    <p className="mt-2 truncate text-xs text-muted-foreground">
+                                        {grokLive
+                                            ? `Grok Voice heard: ${grokText || "listening…"}`
+                                            : grokReady
+                                              ? "Grok Voice is capturing this report…"
+                                              : "Recording locally…"}
+                                    </p>
+                                ) : null}
+                            </div>
+                            <div className="flex shrink-0 flex-col items-center gap-2 self-center md:self-start">
+                                <button
+                                    type="button"
+                                    onClick={() => void toggleRecording()}
+                                    disabled={loading || espBusy}
+                                    aria-label={
+                                        recording
+                                            ? "Stop recording voice report"
+                                            : espLinked
+                                              ? "Record voice report on IrisKey mic"
+                                              : "Record voice report on laptop mic"
+                                    }
+                                    className={cn(
+                                        "grid size-24 place-items-center rounded-full shadow-[var(--mic-shadow)] transition disabled:opacity-60",
+                                        recording && "bg-destructive text-white",
+                                    )}
+                                    style={
+                                        recording
+                                            ? undefined
+                                            : {
+                                                  background: "var(--mic-accent)",
+                                                  color: "var(--mic-accent-fg)",
+                                              }
+                                    }
+                                >
+                                    <Mic className="size-8" />
+                                </button>
+                                <p className="max-w-[7.5rem] text-center text-[11px] leading-tight text-muted-foreground">
+                                    Mic:{" "}
+                                    {espLinked
+                                        ? "IrisKey (preferred)"
+                                        : "Laptop (IrisKey offline)"}
+                                </p>
+                            </div>
+                        </div>
+                    </Panel>
+                </div>
+
+                {finding
+                    ? (() => {
+                          const sections = investigationSections(finding.text);
+                          const hasSections =
+                              sections.predictions.length +
+                                  sections.historicalAnalysis.length +
+                                  sections.possibleCauses.length >
+                              0;
+                          return (
+                              <Panel className="flex flex-col gap-5 p-6">
+                                  <div className="flex flex-wrap items-center justify-between gap-3">
+                                      <h2 className="font-serif text-2xl tracking-tight">
+                                          Analysis
+                                      </h2>
+                                      <div className="flex items-center gap-2">
+                                          <span
+                                              className={cn(
+                                                  "rounded-full px-2.5 py-1 text-[11px] font-medium",
+                                                  finding.severity === "high"
+                                                      ? "bg-destructive/15 text-destructive"
+                                                      : "bg-muted text-muted-foreground",
+                                              )}
+                                          >
+                                              {finding.severity === "high"
+                                                  ? "High priority"
+                                                  : "Monitoring"}
+                                          </span>
+                                          <Button
+                                              variant="ghost"
+                                              size="icon-sm"
+                                              onClick={() =>
+                                                  void speak(finding.speak)
+                                              }
+                                              aria-label="Repeat spoken guidance"
+                                          >
+                                              <Volume2 />
+                                          </Button>
+                                      </div>
+                                  </div>
+                                  {finding.heard &&
+                                  finding.voiceEngine === "grok-voice" ? (
+                                      <p className="text-xs text-muted-foreground">
+                                          Grok Voice heard: {finding.heard}
+                                      </p>
+                                  ) : null}
+                                  {hasSections ? (
+                                      <div className="space-y-5">
+                                          {(
+                                              [
+                                                  {
+                                                      title: "Predictions",
+                                                      body: sections.predictions,
+                                                  },
+                                                  {
+                                                      title: "What could be causing these symptoms",
+                                                      body: sections.possibleCauses,
+                                                  },
+                                                  {
+                                                      title: "Historical analysis",
+                                                      body: sections.historicalAnalysis,
+                                                  },
+                                              ] as const
+                                          ).map((section) =>
+                                              section.body.length ? (
+                                                  <section
+                                                      key={section.title}
+                                                      className="rounded-2xl bg-muted/45 px-4 py-4"
+                                                  >
+                                                      <h3 className="font-serif text-lg tracking-tight">
+                                                          {section.title}
+                                                      </h3>
+                                                      <div className="mt-2 space-y-3 text-sm leading-7 text-foreground/90">
+                                                          {section.body.map(
+                                                              (paragraph) => (
+                                                                  <p
+                                                                      key={
+                                                                          paragraph
+                                                                      }
+                                                                  >
+                                                                      {
+                                                                          paragraph
+                                                                      }
+                                                                  </p>
+                                                              ),
+                                                          )}
+                                                      </div>
+                                                  </section>
+                                              ) : null,
+                                          )}
+                                      </div>
+                                  ) : (
+                                      <p className="whitespace-pre-wrap text-sm leading-6">
+                                          {finding.text
+                                              .replaceAll("## ", "")
+                                              .replaceAll("**", "")}
+                                      </p>
+                                  )}
+                                  <div className="flex flex-wrap gap-2">
+                                      {finding.citations.map((citation) => (
+                                          <span
+                                              className="rounded-full bg-muted px-2.5 py-1 text-[11px] text-muted-foreground"
+                                              key={citation.id}
+                                              title={citation.source}
+                                          >
+                                              {citation.id}
+                                          </span>
+                                      ))}
+                                  </div>
+                              </Panel>
+                          );
+                      })()
+                    : null}
 
                 <div className="grid gap-4 lg:grid-cols-12">
                     <Panel className="lg:col-span-4">
@@ -690,111 +817,51 @@ export default function StationPage() {
                             {spe ? <MetricTile metric={spe} /> : null}
                         </div>
                     </Panel>
+                </div>
 
+                <div className="grid gap-4 lg:grid-cols-12">
                     <Panel className="lg:col-span-7">
-                        <div className="mb-3 flex items-center justify-between gap-3">
-                            <p className="text-sm text-muted-foreground">
-                                Investigation
-                            </p>
-                            {finding ? (
-                                <div className="flex items-center gap-2">
-                                    <span
-                                        className={cn(
-                                            "rounded-full px-2.5 py-1 text-[11px] font-medium",
-                                            finding.severity === "high"
-                                                ? "bg-destructive/15 text-destructive"
-                                                : "bg-muted text-muted-foreground",
+                        <p className="mb-3 text-sm text-muted-foreground">
+                            Investigation
+                        </p>
+                        {finding?.recommendedActions?.length ? (
+                            <div className="space-y-3 text-sm leading-6">
+                                <div>
+                                    <p className="text-xs font-medium text-muted-foreground">
+                                        Immediate actions
+                                    </p>
+                                    <ul className="mt-1 list-disc space-y-1 pl-4">
+                                        {finding.recommendedActions.map(
+                                            (action) => (
+                                                <li key={action}>{action}</li>
+                                            ),
                                         )}
-                                    >
-                                        {finding.severity === "high"
-                                            ? "High priority"
-                                            : "Monitoring"}
-                                    </span>
-                                    {finding.voiceEngine === "grok-voice" ? (
-                                        <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-medium text-emerald-500">
-                                            Heard by Grok Voice
-                                        </span>
-                                    ) : null}
-                                    <Button
-                                        variant="ghost"
-                                        size="icon-sm"
-                                        onClick={() =>
-                                            void speak(finding.speak)
-                                        }
-                                        aria-label="Repeat spoken guidance"
-                                    >
-                                        <Volume2 />
-                                    </Button>
+                                    </ul>
                                 </div>
-                            ) : null}
-                        </div>
-                        {finding ? (
-                            <div>
-                                {finding.heard &&
-                                finding.voiceEngine === "grok-voice" ? (
-                                    <p className="mb-3 text-xs text-muted-foreground">
-                                        Grok Voice heard: {finding.heard}
-                                    </p>
-                                ) : null}
                                 {finding.possibleConcerns?.length ? (
-                                    <div className="space-y-3 text-sm leading-6">
-                                        <div>
-                                            <p className="text-xs font-medium text-muted-foreground">
-                                                Possible concerns
-                                            </p>
-                                            <ul className="mt-1 list-disc space-y-1 pl-4">
-                                                {finding.possibleConcerns.map(
-                                                    (concern) => (
-                                                        <li key={concern}>
-                                                            {concern}
-                                                        </li>
-                                                    ),
-                                                )}
-                                            </ul>
-                                        </div>
-                                        {finding.recommendedActions?.length ? (
-                                            <div>
-                                                <p className="text-xs font-medium text-muted-foreground">
-                                                    Immediate actions
-                                                </p>
-                                                <ul className="mt-1 list-disc space-y-1 pl-4">
-                                                    {finding.recommendedActions.map(
-                                                        (action) => (
-                                                            <li key={action}>
-                                                                {action}
-                                                            </li>
-                                                        ),
-                                                    )}
-                                                </ul>
-                                            </div>
-                                        ) : null}
+                                    <div>
+                                        <p className="text-xs font-medium text-muted-foreground">
+                                            Working concerns
+                                        </p>
+                                        <ul className="mt-1 list-disc space-y-1 pl-4">
+                                            {finding.possibleConcerns.map(
+                                                (concern) => (
+                                                    <li key={concern}>
+                                                        {concern}
+                                                    </li>
+                                                ),
+                                            )}
+                                        </ul>
                                     </div>
-                                ) : (
-                                    <p className="whitespace-pre-wrap text-sm leading-6">
-                                        {finding.text
-                                            .replaceAll("## ", "")
-                                            .replaceAll("**", "")}
-                                    </p>
-                                )}
-                                <div className="mt-4 flex flex-wrap gap-2">
-                                    {finding.citations.map((citation) => (
-                                        <span
-                                            className="rounded-full bg-muted px-2.5 py-1 text-[11px] text-muted-foreground"
-                                            key={citation.id}
-                                            title={citation.source}
-                                        >
-                                            {citation.id}
-                                        </span>
-                                    ))}
-                                </div>
+                                ) : null}
                             </div>
                         ) : (
                             <p className="text-sm leading-6 text-muted-foreground">
                                 {flareActive
-                                    ? `A solar flare is active and hull radiation is ${radiation?.value ?? "elevated"} mSv/h. Report flashes, nausea, breathlessness, or suit-pressure warnings so Iris can compare them with this window.`
+                                    ? `A solar flare is active and hull radiation is ${radiation?.value ?? "elevated"} mSv/h. Use the report box above when flashes, nausea, breathlessness, or suit-pressure warnings show up.`
                                     : heart
-                                      ? `Heart rate is ${heart.value} bpm against a resting baseline of ${heart.baseline}. Cabin air and solar weather are in view — report if something feels off.`
-                                      : "Speak or type a report when something feels off."}
+                                      ? `Heart rate is ${heart.value} bpm against a resting baseline of ${heart.baseline}. Cabin air and solar weather are in view — report above if something feels off.`
+                                      : "Use the report box at the top when something feels off. Iris will expand that panel with predictions, historical OSDR analysis, and possible causes."}
                             </p>
                         )}
                     </Panel>
@@ -817,7 +884,12 @@ export default function StationPage() {
                                             {log.summary}
                                         </p>
                                         <p className="mt-0.5 text-[11px] text-muted-foreground">
-                                            {log.channel} · sent{" "}
+                                            {log.channel === "voice"
+                                                ? "voiced"
+                                                : log.channel === "typed"
+                                                  ? "typed"
+                                                  : log.channel}{" "}
+                                            · sent{" "}
                                             {formatClock(log.sentAt)} · recv{" "}
                                             {formatClock(
                                                 log.actualReceivedAt ??

@@ -10,10 +10,15 @@ export default function HomePage() {
         <ThemeToggle />
       </div>
       <div className="mx-auto flex w-full max-w-xl flex-col items-center gap-8 rounded-[2rem] bg-card/90 px-8 py-14 text-center shadow-[var(--panel-shadow)]">
-        <p className="text-xs font-medium tracking-[0.28em] text-muted-foreground uppercase">
-          Iris
-        </p>
-        <h1 className="font-serif text-6xl tracking-tight">Iris</h1>
+        <Link
+          href="/station"
+          className="flex flex-col items-center gap-2 outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <p className="text-xs font-medium tracking-[0.28em] text-muted-foreground uppercase">
+            Iris
+          </p>
+          <h1 className="font-serif text-6xl tracking-tight">Iris</h1>
+        </Link>
         <p className="max-w-sm text-muted-foreground">
           Crew health, cabin air, suit pressure, and solar weather — onboard
           for the crew who needs help, and on the ground for the people
@@ -29,7 +34,7 @@ export default function HomePage() {
             variant="secondary"
             className="h-12 px-6 text-base"
           >
-            <Link href="/groundbase">Open groundbase</Link>
+            <Link href="/groundbase">Open Mission Control</Link>
           </Button>
         </div>
       </div>

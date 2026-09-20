@@ -11,6 +11,52 @@ export function extractSpeakSection(markdown: string): string | null {
   return body || null;
 }
 
+function extractNamedSection(markdown: string, heading: RegExp): string[] {
+  const match = markdown.match(
+    new RegExp(
+      `##\\s*(?:${heading.source})\\s*\\r?\\n+([\\s\\S]*?)(?=\\r?\\n##\\s|$)`,
+      "i",
+    ),
+  );
+  const body = match?.[1]?.trim();
+  if (!body) return [];
+  // Prefer paragraph blocks; fall back to cleaned bullet lines.
+  const paragraphs = body
+    .split(/\n\s*\n/)
+    .map((block) =>
+      block
+        .split(/\r?\n/)
+        .map((line) =>
+          line
+            .replace(/^\s*[-*•]\s+/, "")
+            .replace(/\*\*([^*]+)\*\*/g, "$1")
+            .replace(/\*([^*]+)\*/g, "$1")
+            .trim(),
+        )
+        .filter(Boolean)
+        .join(" "),
+    )
+    .map((p) => p.trim())
+    .filter(Boolean);
+  return paragraphs;
+}
+
+/** Screen sections for station UI (predictions / history / causes). */
+export function investigationSections(markdown: string): {
+  predictions: string[];
+  historicalAnalysis: string[];
+  possibleCauses: string[];
+} {
+  return {
+    predictions: extractNamedSection(markdown, /Predictions?/),
+    historicalAnalysis: extractNamedSection(markdown, /Historical analysis/),
+    possibleCauses: extractNamedSection(
+      markdown,
+      /What could be causing(?: these symptoms)?|Possible causes|Causal(?:ities)?/,
+    ),
+  };
+}
+
 function stripMarkdownToProse(markdown: string): string {
   return markdown
     .replace(/\r/g, "")

@@ -52,7 +52,9 @@ describe("Iris onboard context", () => {
     setScenario("mild");
     const reply = investigationReply("I have a headache and feel short of breath");
     expect(reply.severity).toBe("monitor");
-    expect(reply.text).toContain("personal baseline");
+    expect(reply.text).toContain("## Predictions");
+    expect(reply.text).toContain("## Historical analysis");
+    expect(reply.text).toMatch(/baseline/i);
   });
 
   it("exposes hull radiation, solar flare, and SPE flux as space weather", () => {
@@ -184,10 +186,12 @@ describe("Iris onboard context", () => {
     expect(reply.telemetry.astronaut.join(" ")).toMatch(/Heart rate/i);
     expect(reply.telemetry.spacecraft.join(" ")).toMatch(/CO₂|CO2/i);
     expect(reply.telemetry.environment.join(" ")).toMatch(/Radiation/i);
-    expect(reply.text).toContain("Voice report");
-    expect(reply.text).toContain("Voice signal: reported breathlessness");
+    expect(reply.text).toContain("## Predictions");
+    expect(reply.text).toContain("## What could be causing these symptoms");
+    expect(reply.text).toContain("EVID-OSDR-014");
     expect(reply.possibleConcerns.length).toBeGreaterThan(0);
     expect(reply.recommendedActions.join(" ")).toMatch(/shielding/i);
     expect(reply.severity).toBe("high");
+    expect(reply.speak).toMatch(/OSDR|Risk 95|shielding/i);
   });
 });

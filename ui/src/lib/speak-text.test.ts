@@ -42,12 +42,21 @@ describe("speak-text", () => {
     expect(speak).not.toContain("Six");
   });
 
-  it("chunks long speech on sentence boundaries", () => {
-    const text =
-      "First sentence is here. Second sentence follows next. Third one wraps it up for the crew briefing today.";
-    const chunks = splitSpeakChunks(text, 40);
-    expect(chunks.length).toBeGreaterThan(1);
-    expect(chunks.join(" ")).toContain("First sentence");
-    expect(chunks.every((c) => c.length <= 60)).toBe(true);
+  it("parses prediction, historical, and cause sections", async () => {
+    const { investigationSections } = await import("./speak-text");
+    const sections = investigationSections(`## Predictions
+Next recheck may show a rising cabin-air effect if symptoms continue.
+
+## What could be causing these symptoms
+Cabin CO2 and the reported headache can line up in time without proving cause.
+
+## Historical analysis
+[EVID-OSDR-014] Prior radiation cohorts warrant repeated assessment. This mild window only partly matches those cases.
+
+## Speak aloud
+I heard your report.`);
+    expect(sections.predictions[0]).toContain("cabin-air");
+    expect(sections.historicalAnalysis[0]).toContain("EVID-OSDR-014");
+    expect(sections.possibleCauses[0]).toContain("Cabin CO2");
   });
 });

@@ -49,6 +49,11 @@
   --canvas-1: oklch(0.9 0.03 250 / 0.55);
   --canvas-2: oklch(0.92 0.025 300 / 0.28);
   --canvas-3: oklch(0.93 0.02 230 / 0.22);
+  /* Always match dark-mode mark / mic accents in both themes */
+  --iris-mark: oklch(0.93 0.012 95);
+  --iris-mark-fg: oklch(0.2 0.02 268);
+  --mic-accent: oklch(0.82 0.045 250);
+  --mic-accent-fg: oklch(0.2 0.02 268);
 }
 
 html.dark {
@@ -74,6 +79,10 @@ html.dark {
   --canvas-1: oklch(0.32 0.055 275 / 0.42);
   --canvas-2: oklch(0.34 0.06 300 / 0.12);
   --canvas-3: oklch(0.28 0.045 230 / 0.1);
+  --iris-mark: oklch(0.93 0.012 95);
+  --iris-mark-fg: oklch(0.2 0.02 268);
+  --mic-accent: oklch(0.82 0.045 250);
+  --mic-accent-fg: oklch(0.2 0.02 268);
 }
 
 * {

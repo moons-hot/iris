@@ -3,12 +3,10 @@ export type Theme = "light" | "dark";
 export const THEME_KEY = "iris-theme";
 
 export function getPreferredTheme(): Theme {
-  if (typeof window === "undefined") return "dark";
+  if (typeof window === "undefined") return "light";
   const stored = window.localStorage.getItem(THEME_KEY);
   if (stored === "light" || stored === "dark") return stored;
-  return window.matchMedia("(prefers-color-scheme: light)").matches
-    ? "light"
-    : "dark";
+  return "light";
 }
 
 export function applyTheme(theme: Theme) {
