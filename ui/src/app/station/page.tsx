@@ -126,13 +126,13 @@ export default function StationPage() {
         await refreshLogs();
     }, [refreshLogs, refreshSnapshot]);
 
-    // Snapshot + logs load once; logs refresh again after voice/typed reports.
-    // Slow snapshot poll keeps vitals alive without hammering Tiger every second.
+    // Live telemetry: poll often so vitals, cabin, space, and peers keep moving.
+    // Logs stay on-demand so Tiger is not hit every tick.
     useEffect(() => {
         void refresh();
         const interval = window.setInterval(
             () => void refreshSnapshot(),
-            90_000,
+            2_500,
         );
         return () => window.clearInterval(interval);
     }, [refresh, refreshSnapshot]);
@@ -761,7 +761,7 @@ export default function StationPage() {
                                     Mic:{" "}
                                     {espLinked
                                         ? "IrisKey (preferred)"
-                                        : "Laptop (IrisKey offline)"}
+                                        : "IrisKey"}
                                 </p>
                             </div>
                         </div>

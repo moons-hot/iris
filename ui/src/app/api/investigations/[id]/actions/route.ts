@@ -34,7 +34,13 @@ Name the critical metrics that are off baseline or elevated right now (only the 
 Close with an explanation of the historical / OSDR-style testing you used from the onboard evidence packet (citation IDs such as EVID-OSDR-014, EVID-HRR-095). Say how the current report and event context match — or do not match — those prior cases. Tie that match/mismatch to the live event mode (mild vs dire) and space-weather signals such as solar flares when relevant. Do not invent new study IDs.
 
 ## Speak aloud
-What the crew hears on the laptop speakers (at most 5 short sentences, under ~620 characters). Interpret — do NOT recite every number. Cover: what you heard; the most important symptom–metric links; whether history matches this event; mild vs dire / flare context; one next check. Calm tone. No markdown, no bullets, no citation IDs.
+Exactly 4 or 5 short sentences the crew hears on the speakers (under ~520 characters). Do NOT recite vitals or read a metrics list.
+Hit these points, in order:
+1) Causal link: connect the reported symptoms to the most relevant environmental or telemetry signal (possible cause only — never a diagnosis).
+2) Prediction: what that pattern suggests next (monitor vs escalate).
+3) OSDR history: say you checked NASA OSDR historical cases for prior matching patterns, and whether they match this window.
+4) Action: if dire / flare, give one clear protective solution (e.g. move to shielding now). Otherwise one calm next check.
+Calm tone. No markdown, no bullets, no citation IDs, no raw number dump.
 
 Preserve citation IDs in the non-speak sections only.
 Use the NASA Human Research Roadmap Risk 95 reference when relevant: https://humanresearchroadmap.nasa.gov/Risks/risk.aspx?i=95.`;

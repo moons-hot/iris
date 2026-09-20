@@ -1,6 +1,6 @@
-/** Cabin speaker briefing: up to five sentences, not a one-liner ack. */
+/** Cabin speaker briefing: 4–5 sentences max, causal + OSDR, not a vitals dump. */
 const DEFAULT_SPEAK_MAX_SENTENCES = 5;
-const DEFAULT_SPEAK_MAX_CHARS = 620;
+const DEFAULT_SPEAK_MAX_CHARS = 520;
 
 /** Prefer a dedicated Speak section when Grok provides one. */
 export function extractSpeakSection(markdown: string): string | null {

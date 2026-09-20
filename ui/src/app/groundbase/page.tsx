@@ -86,28 +86,38 @@ export default function GroundbasePage() {
   const [logsConfigured, setLogsConfigured] = useState(false);
   const [openLogId, setOpenLogId] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    const [fleetResponse, logsResponse] = await Promise.all([
-      fetch(`/api/fleet?id=${selectedId}`),
-      fetch(`/api/logs?limit=100&vesselId=${selectedId}`),
-    ]);
+  const refreshFleet = useCallback(async () => {
+    const fleetResponse = await fetch(`/api/fleet?id=${selectedId}`);
     if (fleetResponse.ok) setFleet(await fleetResponse.json());
-    if (logsResponse.ok) {
-      const result = (await logsResponse.json()) as {
-        configured?: boolean;
-        logs?: CommsLog[];
-      };
-      setLogsConfigured(Boolean(result.configured));
-      setLogs(result.logs ?? []);
-    }
   }, [selectedId]);
 
-  // Delayed downlink - no need to hit Tiger/fleet every ~1.6s.
+  const refreshLogs = useCallback(async () => {
+    const logsResponse = await fetch(
+      `/api/logs?limit=100&vesselId=${selectedId}`,
+    );
+    if (!logsResponse.ok) return;
+    const result = (await logsResponse.json()) as {
+      configured?: boolean;
+      logs?: CommsLog[];
+    };
+    setLogsConfigured(Boolean(result.configured));
+    setLogs(result.logs ?? []);
+  }, [selectedId]);
+
+  const refresh = useCallback(async () => {
+    await Promise.all([refreshFleet(), refreshLogs()]);
+  }, [refreshFleet, refreshLogs]);
+
+  // Fleet metrics tick live; Tiger downlink stays slower.
   useEffect(() => {
     void refresh();
-    const interval = window.setInterval(() => void refresh(), 90_000);
-    return () => window.clearInterval(interval);
-  }, [refresh]);
+    const fleetInterval = window.setInterval(() => void refreshFleet(), 2_500);
+    const logsInterval = window.setInterval(() => void refreshLogs(), 90_000);
+    return () => {
+      window.clearInterval(fleetInterval);
+      window.clearInterval(logsInterval);
+    };
+  }, [refresh, refreshFleet, refreshLogs]);
 
   if (!fleet)
     return (

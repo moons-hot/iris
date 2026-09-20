@@ -129,6 +129,31 @@ describe("Iris onboard context", () => {
     expect(flare?.direction).toBe("up");
   });
 
+  it("raises peer heart rates during a solar-flare window and keeps them moving", () => {
+    setScenario("nominal");
+    const quiet = getSnapshot();
+    const quietPeers = Object.fromEntries(
+      quiet.peers.map((peer) => [peer.id, peer.heartRate]),
+    );
+
+    setScenario("dire");
+    const flareA = getSnapshot();
+    const flareB = getSnapshot();
+
+    expect(flareA.peers).toHaveLength(2);
+    for (const peer of flareA.peers) {
+      const resting = quietPeers[peer.id] ?? 60;
+      expect(peer.heartRate).toBeGreaterThan(resting + 20);
+      expect(peer.status).not.toBe("nominal");
+    }
+
+    const moved = flareA.peers.some((peer, index) => {
+      const next = flareB.peers[index];
+      return next != null && next.heartRate !== peer.heartRate;
+    });
+    expect(moved).toBe(true);
+  });
+
   it("lists independent craft for groundbase with alerts on Kepler", () => {
     const fleet = getFleet("kepler");
     expect(fleet.vessels.map((vessel) => vessel.id)).toEqual([
@@ -192,6 +217,9 @@ describe("Iris onboard context", () => {
     expect(reply.possibleConcerns.length).toBeGreaterThan(0);
     expect(reply.recommendedActions.join(" ")).toMatch(/shielding/i);
     expect(reply.severity).toBe("high");
-    expect(reply.speak).toMatch(/OSDR|Risk 95|shielding/i);
+    expect(reply.speak).toMatch(/OSDR/i);
+    expect(reply.speak).toMatch(/shielding/i);
+    expect(reply.speak).not.toMatch(/\d+\s*bpm/i);
+    expect(reply.speak.split(/[.!?]+/).filter((s) => s.trim()).length).toBeLessThanOrEqual(5);
   });
 });

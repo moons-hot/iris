@@ -136,9 +136,11 @@ type Spec = {
   spe: number;
 };
 
+type PeerRoster = { id: string; name: string; heartRate: number }[];
+
 type VesselDef = VesselInfo & {
   astronaut: Snapshot["astronaut"];
-  peers: Snapshot["peers"];
+  peers: PeerRoster;
   liveScenario?: boolean;
   scenario: Scenario;
   spec?: Partial<Spec>;
@@ -257,6 +259,50 @@ function metric(
   };
 }
 
+function peerHeartRate(
+  baseline: number,
+  activeScenario: Scenario,
+  t: number,
+  phase: number,
+): number {
+  const center =
+    activeScenario === "dire"
+      ? baseline + 38
+      : activeScenario === "mild"
+        ? baseline + 16
+        : baseline;
+  const magnitude =
+    activeScenario === "dire" ? 7 : activeScenario === "mild" ? 4.5 : 2.2;
+  return (
+    sampleSeries(center, magnitude, 0, { tick: t, phase }).at(-1) ?? center
+  );
+}
+
+function peerStatus(
+  activeScenario: Scenario,
+  index: number,
+): Snapshot["peers"][number]["status"] {
+  if (activeScenario === "dire") {
+    return index === 0 ? "observing" : "report logged";
+  }
+  if (activeScenario === "mild") return "observing";
+  return "nominal";
+}
+
+/** Live peer vitals — elevated and noisier during mild / solar-flare (dire). */
+export function livePeers(
+  roster: { id: string; name: string; heartRate: number }[],
+  activeScenario: Scenario,
+  t: number,
+): Snapshot["peers"] {
+  return roster.map((peer, index) => ({
+    id: peer.id,
+    name: peer.name,
+    status: peerStatus(activeScenario, index),
+    heartRate: peerHeartRate(peer.heartRate, activeScenario, t, index * 5),
+  }));
+}
+
 function snapshotFrom(
   activeScenario: Scenario,
   t: number,
@@ -264,42 +310,44 @@ function snapshotFrom(
   peers: Snapshot["peers"],
   spec: Spec = specs[activeScenario],
 ): Snapshot {
-  const jitter = activeScenario === "nominal" ? 1 : 0.55;
-  const hrHistory = sampleSeries(spec.hr, 3.8 * jitter, 0, { tick: t });
-  const sysHistory = sampleSeries(spec.sys, 4.2 * jitter, 0, { tick: t });
-  const diaHistory = sampleSeries(spec.dia, 2.4 * jitter, 0, {
+  // High-risk windows wander harder so the console looks alive.
+  const jitter =
+    activeScenario === "dire" ? 1.45 : activeScenario === "mild" ? 1.15 : 1;
+  const hrHistory = sampleSeries(spec.hr, 4.6 * jitter, 0, { tick: t });
+  const sysHistory = sampleSeries(spec.sys, 5.2 * jitter, 0, { tick: t });
+  const diaHistory = sampleSeries(spec.dia, 3.1 * jitter, 0, {
     phase: 3,
     tick: t,
   });
-  const tempHistory = sampleSeries(spec.temp, 0.14 * jitter, 1, { tick: t });
-  const spo2History = sampleSeries(spec.spo2, 0.6 * jitter, 0, {
+  const tempHistory = sampleSeries(spec.temp, 0.18 * jitter, 1, { tick: t });
+  const spo2History = sampleSeries(spec.spo2, 0.85 * jitter, 0, {
     drift:
       activeScenario === "dire" ? -1.4 : activeScenario === "mild" ? -0.6 : 0,
     tick: t,
   });
-  const rrHistory = sampleSeries(spec.rr, 1.1 * jitter, 0, {
+  const rrHistory = sampleSeries(spec.rr, 1.5 * jitter, 0, {
     drift: activeScenario === "nominal" ? 0 : 1.4,
     tick: t,
   });
-  const oxygenHistory = sampleSeries(spec.oxygen, 0.12, 1, {
+  const oxygenHistory = sampleSeries(spec.oxygen, 0.16 * jitter, 1, {
     drift: activeScenario === "dire" ? -0.12 : 0,
     tick: t,
   });
-  const co2History = sampleSeries(spec.co2, 0.05, 2, {
+  const co2History = sampleSeries(spec.co2, 0.06 * jitter, 2, {
     drift: activeScenario === "nominal" ? 0.03 : 0.1,
     tick: t,
   });
-  const pressureHistory = sampleSeries(spec.pressure, 0.08, 1, {
+  const pressureHistory = sampleSeries(spec.pressure, 0.12 * jitter, 1, {
     drift: activeScenario === "dire" ? -0.18 : 0,
     tick: t,
   });
-  const suitHistory = sampleSeries(spec.suit, 0.08, 1, {
+  const suitHistory = sampleSeries(spec.suit, 0.12 * jitter, 1, {
     drift: activeScenario === "dire" ? -0.7 : 0,
     tick: t,
   });
   const radiationHistory = sampleSeries(
     spec.radiation,
-    activeScenario === "dire" ? 0.16 : 0.07,
+    activeScenario === "dire" ? 0.28 : 0.09,
     2,
     {
       drift: activeScenario === "dire" ? 0.22 : 0.03,
@@ -311,7 +359,7 @@ function snapshotFrom(
   );
   const speHistory = sampleSeries(
     spec.spe,
-    activeScenario === "dire" ? 0.8 : 0.05,
+    activeScenario === "dire" ? 1.2 : 0.08,
     1,
     {
       drift: activeScenario === "dire" ? 1.4 : 0,
@@ -406,20 +454,10 @@ function snapshotFrom(
   };
 }
 
-const asteriaPeers = (): Snapshot["peers"] => [
-  {
-    id: "A02",
-    name: "Jonah Reyes",
-    status: scenario === "dire" ? "observing" : "nominal",
-    heartRate: 65,
-  },
-  {
-    id: "A03",
-    name: "Elena Park",
-    status: scenario === "dire" ? "report logged" : "nominal",
-    heartRate: 59,
-  },
-];
+const ASTERIA_PEER_ROSTER = [
+  { id: "A02", name: "Jonah Reyes", heartRate: 65 },
+  { id: "A03", name: "Elena Park", heartRate: 59 },
+] as const;
 
 const VESSELS: VesselDef[] = [
   {
@@ -429,7 +467,7 @@ const VESSELS: VesselDef[] = [
     callsign: "AST-1",
     destination: "Deep-space cruise",
     astronaut: { id: "A01", name: "Mara Voss", missionDay: 184 },
-    peers: [],
+    peers: [...ASTERIA_PEER_ROSTER],
     liveScenario: true,
     scenario: "nominal",
   },
@@ -441,8 +479,8 @@ const VESSELS: VesselDef[] = [
     destination: "Rendezvous with Asteria",
     astronaut: { id: "A04", name: "Nia Okonkwo", missionDay: 12 },
     peers: [
-      { id: "A05", name: "Chris Vale", status: "nominal", heartRate: 68 },
-      { id: "A06", name: "Priya Shah", status: "nominal", heartRate: 71 },
+      { id: "A05", name: "Chris Vale", heartRate: 68 },
+      { id: "A06", name: "Priya Shah", heartRate: 71 },
     ],
     scenario: "mild",
   },
@@ -453,9 +491,7 @@ const VESSELS: VesselDef[] = [
     callsign: "RKT-7",
     destination: "Outbound injection",
     astronaut: { id: "A07", name: "Ravi Mehta", missionDay: 3 },
-    peers: [
-      { id: "A08", name: "Owen Blake", status: "observing", heartRate: 92 },
-    ],
+    peers: [{ id: "A08", name: "Owen Blake", heartRate: 72 }],
     scenario: "dire",
   },
   {
@@ -465,9 +501,7 @@ const VESSELS: VesselDef[] = [
     callsign: "SHU-9",
     destination: "Lunar swing-by",
     astronaut: { id: "A09", name: "Sofia Alvarez", missionDay: 41 },
-    peers: [
-      { id: "A10", name: "Kenji Mori", status: "nominal", heartRate: 61 },
-    ],
+    peers: [{ id: "A10", name: "Kenji Mori", heartRate: 61 }],
     scenario: "nominal",
     spec: { suit: 26.2, co2: 0.66 },
   },
@@ -601,7 +635,7 @@ function snapshotForVessel(id: string, advance = true): VesselSnapshot {
   const activeScenario = def.liveScenario ? scenario : def.scenario;
   const t = advance ? advanceVesselTick(def.id) : def.liveScenario ? tick : (vesselTicks[def.id] ?? 0);
   const spec = { ...specs[activeScenario], ...def.spec };
-  const peers = def.liveScenario ? asteriaPeers() : def.peers;
+  const peers = livePeers(def.peers, activeScenario, t);
   const snapshot = snapshotFrom(
     activeScenario,
     t,
@@ -812,16 +846,16 @@ Using onboard OSDR/HRR extracts (${evidence.map((item) => item.id).join(", ")}):
 ## Speak aloud
 ${
   dire
-    ? "I heard your report and the timing with habitat and space readings looks high-priority in this dire window. History from OSDR-style radiation cohorts and Risk 95 is a partial match for co-timed symptoms during flare pressure, so we investigate rather than diagnose. Move to shielding, notify the crew medical lead, and we will recheck blood pressure once you are shielded."
+    ? "Your nausea and light flashes line up with the radiation and solar-flare rise, so those could be connected rather than random. That pattern predicts a high-priority risk window if exposure continues. I checked NASA OSDR historical cases, and prior crews logged similar co-timed GI and visual reports during SPE windows. Move to shielding now, notify the medical lead, and recheck blood pressure once you are shielded."
     : mild
-      ? "I heard your report. The critical off-baseline metrics can fit cabin-air, hydration, or exertion stress with what you described — possibilities only. OSDR and cabin history only partly match a mild watch pattern until a quiet recheck. Sit supported, hydrate, and we will repeat the key vitals in five minutes."
-      : "I heard your report. Telemetry is near your baseline, so the numbers alone do not explain how you feel and this does not look critical from readings alone. Historical OSDR cases do not strongly match yet. Sit supported, recheck pulse after five quiet minutes, and tell me if anything changes."
+      ? "Your headache and breathlessness can fit with cabin air pressure and your pulse running above your personal baseline. That pattern predicts a monitor-level watch, not an emergency, if we recheck after a quiet pause. I checked NASA OSDR and cabin history, and it only partly matches past nonspecific cabin-air cases. Sit supported, hydrate, and we will repeat the key vitals in five minutes."
+      : "I hear what you described, but ship and space readings are still near your personal baseline, so environment alone does not explain it yet. That predicts a symptom-first watch until something moves. I checked NASA OSDR history and nothing strongly matches this window. Sit supported, recheck pulse after five quiet minutes, and tell me if anything changes."
 }`,
     speak: dire
-      ? "I heard your report and the timing with habitat and space readings looks high-priority in this dire window. History from OSDR-style radiation cohorts and Risk 95 is a partial match for co-timed symptoms during flare pressure, so we investigate rather than diagnose. Move to shielding, notify the crew medical lead, and we will recheck blood pressure once you are shielded."
+      ? "Your nausea and light flashes line up with the radiation and solar-flare rise, so those could be connected rather than random. That pattern predicts a high-priority risk window if exposure continues. I checked NASA OSDR historical cases, and prior crews logged similar co-timed GI and visual reports during SPE windows. Move to shielding now, notify the medical lead, and recheck blood pressure once you are shielded."
       : mild
-        ? "I heard your report. The critical off-baseline metrics can fit cabin-air, hydration, or exertion stress with what you described — possibilities only. OSDR and cabin history only partly match a mild watch pattern until a quiet recheck. Sit supported, hydrate, and we will repeat the key vitals in five minutes."
-        : "I heard your report. Telemetry is near your baseline, so the numbers alone do not explain how you feel and this does not look critical from readings alone. Historical OSDR cases do not strongly match yet. Sit supported, recheck pulse after five quiet minutes, and tell me if anything changes.",
+        ? "Your headache and breathlessness can fit with cabin air pressure and your pulse running above your personal baseline. That pattern predicts a monitor-level watch, not an emergency, if we recheck after a quiet pause. I checked NASA OSDR and cabin history, and it only partly matches past nonspecific cabin-air cases. Sit supported, hydrate, and we will repeat the key vitals in five minutes."
+        : "I hear what you described, but ship and space readings are still near your personal baseline, so environment alone does not explain it yet. That predicts a symptom-first watch until something moves. I checked NASA OSDR history and nothing strongly matches this window. Sit supported, recheck pulse after five quiet minutes, and tell me if anything changes.",
     citations: evidence.map((item) => ({
       id: item.id,
       title: item.title,
