@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { investigationToSpeak, splitSpeakChunks } from "./speak-text";
+import {
+  commsAiResponseSummary,
+  investigationToSpeak,
+  splitSpeakChunks,
+} from "./speak-text";
 
 describe("speak-text", () => {
   it("strips markdown into spoken prose", () => {
@@ -58,5 +62,31 @@ I heard your report.`);
     expect(sections.predictions[0]).toContain("cabin-air");
     expect(sections.historicalAnalysis[0]).toContain("EVID-OSDR-014");
     expect(sections.possibleCauses[0]).toContain("Cabin CO2");
+  });
+
+  it("builds an informational Mission Control one-liner", () => {
+    const summary = commsAiResponseSummary({
+      speak:
+        "I heard your headache and rising cabin CO2. Sit supported and recheck pulse in five minutes.",
+      severity: "monitor",
+      crewReport: "I have a headache",
+    });
+    expect(summary).toContain("Re: I have a headache.");
+    expect(summary).toContain("Monitoring:");
+    expect(summary).toContain("I heard your headache");
+    expect(summary).not.toContain("[ALERT]");
+    expect(summary).not.toContain("—");
+  });
+
+  it("flags high-priority Iris replies for Mission Control", () => {
+    const summary = commsAiResponseSummary({
+      speak: "Move to shielding now and notify the crew medical lead.",
+      severity: "high",
+      crewReport: "Seeing flashes and feeling nauseous",
+    });
+    expect(summary.startsWith("[ALERT]")).toBe(true);
+    expect(summary).toContain("High priority:");
+    expect(summary).toContain("Move to shielding");
+    expect(summary).not.toContain("—");
   });
 });

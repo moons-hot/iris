@@ -84,15 +84,12 @@ export default function GroundbasePage() {
   const [selectedId, setSelectedId] = useState("asteria");
   const [logs, setLogs] = useState<CommsLog[]>([]);
   const [logsConfigured, setLogsConfigured] = useState(false);
-  const [logScope, setLogScope] = useState<"craft" | "fleet">("craft");
   const [openLogId, setOpenLogId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const [fleetResponse, logsResponse] = await Promise.all([
       fetch(`/api/fleet?id=${selectedId}`),
-      fetch(
-        `/api/logs?limit=100${logScope === "craft" ? `&vesselId=${selectedId}` : ""}`,
-      ),
+      fetch(`/api/logs?limit=100&vesselId=${selectedId}`),
     ]);
     if (fleetResponse.ok) setFleet(await fleetResponse.json());
     if (logsResponse.ok) {
@@ -103,9 +100,9 @@ export default function GroundbasePage() {
       setLogsConfigured(Boolean(result.configured));
       setLogs(result.logs ?? []);
     }
-  }, [logScope, selectedId]);
+  }, [selectedId]);
 
-  // Delayed downlink — no need to hit Tiger/fleet every ~1.6s.
+  // Delayed downlink - no need to hit Tiger/fleet every ~1.6s.
   useEffect(() => {
     void refresh();
     const interval = window.setInterval(() => void refresh(), 90_000);
@@ -338,49 +335,31 @@ export default function GroundbasePage() {
         </Panel>
 
         <Panel>
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-sm text-muted-foreground">Tiger downlink</p>
-              <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
-                Onboard send is instant. Tiger stores ground-receive{" "}
-                {formatLatency(SPACE_DOWNLINK_MS)} later to match light-time
-                from deep space.
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant={logScope === "craft" ? "default" : "secondary"}
-                size="sm"
-                onClick={() => setLogScope("craft")}
-              >
-                {snapshot.vessel.name}
-              </Button>
-              <Button
-                variant={logScope === "fleet" ? "default" : "secondary"}
-                size="sm"
-                onClick={() => setLogScope("fleet")}
-              >
-                Whole fleet
-              </Button>
-            </div>
+          <div className="mb-5">
+            <p className="text-sm text-muted-foreground">Tiger downlink</p>
+            <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+              Onboard send is instant. Tiger stores ground-receive{" "}
+              {formatLatency(SPACE_DOWNLINK_MS)} later to match light-time
+              from deep space.
+            </p>
           </div>
           {logs.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               {logsConfigured
-                ? "No downlink packets in this filter yet. Speak or type on the onboard station to stamp a delayed Tiger row."
+                ? "No downlink packets yet. Speak or type on the onboard station to stamp a delayed Tiger row."
                 : "Set TIGER_DATABASE_URL to store the delayed sent and received times."}
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[52rem] text-left text-sm">
+              <table className="w-full min-w-[56rem] text-left text-sm">
                 <thead>
                   <tr className="text-[11px] tracking-wide text-muted-foreground uppercase">
-                    <th className="pb-2 font-medium">Craft</th>
-                    <th className="pb-2 font-medium">Channel</th>
-                    <th className="pb-2 font-medium">Sent</th>
-                    <th className="pb-2 font-medium">Ground recv</th>
-                    <th className="pb-2 font-medium">Latency</th>
-                    <th className="pb-2 font-medium">Summary</th>
+                    <th className="pb-3 pr-8 font-medium">Craft</th>
+                    <th className="pb-3 pr-8 font-medium">Channel</th>
+                    <th className="pb-3 pr-8 font-medium">Sent</th>
+                    <th className="pb-3 pr-8 font-medium">Ground recv</th>
+                    <th className="pb-3 pr-8 font-medium">Latency</th>
+                    <th className="pb-3 font-medium">Summary</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -395,31 +374,40 @@ export default function GroundbasePage() {
                           setOpenLogId(open ? null : log.id)
                         }
                       >
-                        <td className="py-3 align-top text-xs">
+                        <td className="py-4 pr-8 align-top text-xs">
                           <p className="font-medium">{log.vesselId}</p>
                           <p className="text-muted-foreground">
                             {log.crewId} · {log.direction}
                           </p>
                         </td>
-                        <td className="py-3 align-top text-xs">
-                          {log.channel === "voice" ? "voiced" : log.channel}
+                        <td className="py-4 pr-8 align-top text-xs">
+                          {log.channel === "voice"
+                            ? "voiced"
+                            : log.channel === "speak"
+                              ? "Iris reply"
+                              : log.channel}
                         </td>
-                        <td className="py-3 align-top font-mono text-xs tabular-nums">
+                        <td className="py-4 pr-8 align-top font-mono text-xs tabular-nums">
                           {formatClock(log.sentAt)}
                         </td>
-                        <td className="py-3 align-top font-mono text-xs tabular-nums">
+                        <td className="py-4 pr-8 align-top font-mono text-xs tabular-nums">
                           {formatClock(log.receivedAt)}
                         </td>
                         <td
                           className={cn(
-                            "py-3 align-top text-xs tabular-nums",
+                            "py-4 pr-8 align-top text-xs tabular-nums",
                             alert && "text-destructive",
                           )}
                         >
                           {formatLatency(log.latencyMs)}
                         </td>
-                        <td className="py-3 align-top">
-                          <p className={cn("text-sm", alert && "text-destructive")}>
+                        <td className="py-4 align-top">
+                          <p
+                            className={cn(
+                              "text-sm",
+                              alert && "font-medium text-destructive",
+                            )}
+                          >
                             {log.summary}
                           </p>
                           {open ? (

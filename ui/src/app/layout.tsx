@@ -18,6 +18,10 @@ const instrument = Instrument_Serif({
 export const metadata: Metadata = {
   title: "Iris | Deep-space health investigation",
   description: "Onboard health investigation for long-duration spaceflight.",
+  icons: {
+    icon: "/iris-mark.png",
+    apple: "/iris-mark.png",
+  },
 };
 
 export default function RootLayout({

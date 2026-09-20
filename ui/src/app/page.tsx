@@ -5,36 +5,38 @@ import { Button } from "@/components/ui/button";
 
 export default function HomePage() {
   return (
-    <main className="relative flex min-h-screen items-center justify-center px-6 py-16">
-      <div className="absolute top-6 right-6">
-        <ThemeToggle />
-      </div>
-      <div className="mx-auto flex w-full max-w-xl flex-col items-center gap-8 rounded-[2rem] bg-card/90 px-8 py-14 text-center shadow-[var(--panel-shadow)]">
+    <main className="relative flex min-h-screen flex-col px-6 py-6 md:px-8 md:py-8">
+      <header className="relative z-10 flex items-center justify-end">
+        <div className="animate-[iris-rise_0.7s_ease-out_0.05s_both]">
+          <ThemeToggle />
+        </div>
+      </header>
+
+      <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-10 pb-16 text-center">
         <Link
           href="/station"
-          className="flex flex-col items-center gap-2 outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring"
+          className="group outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <p className="text-xs font-medium tracking-[0.28em] text-muted-foreground uppercase">
+          <h1 className="animate-[iris-rise_0.85s_ease-out_0.08s_both] font-serif text-[clamp(4.5rem,14vw,9rem)] leading-[0.9] tracking-tight transition duration-500 group-hover:opacity-90">
             Iris
-          </p>
-          <h1 className="font-serif text-6xl tracking-tight">Iris</h1>
+          </h1>
         </Link>
-        <p className="max-w-sm text-muted-foreground">
-          Crew health, cabin air, suit pressure, and solar weather — onboard
-          for the crew who needs help, and on the ground for the people
-          watching the fleet.
-        </p>
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          <Button asChild size="lg" className="h-12 px-6 text-base">
-            <Link href="/station">Open station</Link>
+
+        <div className="flex animate-[iris-rise_0.85s_ease-out_0.18s_both] flex-wrap items-center justify-center gap-3">
+          <Button
+            asChild
+            size="lg"
+            className="h-12 min-w-[10.5rem] px-6 text-base transition duration-300 hover:-translate-y-0.5"
+          >
+            <Link href="/station">Station</Link>
           </Button>
           <Button
             asChild
             size="lg"
             variant="secondary"
-            className="h-12 px-6 text-base"
+            className="h-12 min-w-[10.5rem] px-6 text-base transition duration-300 hover:-translate-y-0.5"
           >
-            <Link href="/groundbase">Open Mission Control</Link>
+            <Link href="/groundbase">Mission Control</Link>
           </Button>
         </div>
       </div>

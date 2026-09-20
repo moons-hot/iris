@@ -47,12 +47,63 @@ export default function StationPage() {
     const [grokReady, setGrokReady] = useState(false);
     const [grokLive, setGrokLive] = useState(false);
     const [grokText, setGrokText] = useState("");
+    const grokTextRef = useRef("");
     const recorder = useRef<MediaRecorder | null>(null);
     const chunks = useRef<Blob[]>([]);
     const esp = useRef<IrisEspLink | null>(null);
     const stopLiveTap = useRef<(() => void) | null>(null);
     const liveInFlight = useRef(false);
     const browserStt = useRef<BrowserSttSession | null>(null);
+
+    function setLiveHeard(text: string, live = true) {
+        grokTextRef.current = text;
+        setGrokText(text);
+        if (live) setGrokLive(true);
+    }
+
+    function clearLiveHeard() {
+        grokTextRef.current = "";
+        setGrokText("");
+        setGrokLive(false);
+    }
+
+    function startBrowserSttBackup() {
+        void browserStt.current?.stop().catch(() => undefined);
+        browserStt.current = startBrowserStt({
+            onPartial: (text) => {
+                const heard = text.trim();
+                if (!heard) return;
+                setLiveHeard(heard);
+            },
+        });
+    }
+
+    async function stopBrowserSttBackup() {
+        const session = browserStt.current;
+        browserStt.current = null;
+        if (!session) return "";
+        try {
+            return (await session.stop()).trim();
+        } catch {
+            return "";
+        }
+    }
+
+    function resolveHeardTranscript(
+        grokHeard: string,
+        browserHeard: string,
+        liveHeard: string,
+    ) {
+        const primary = grokHeard.trim();
+        if (primary) {
+            return { heard: primary, backup: false as const };
+        }
+        const backup = browserHeard.trim() || liveHeard.trim();
+        return {
+            heard: backup,
+            backup: Boolean(backup),
+        };
+    }
 
     const refreshLogs = useCallback(async () => {
         const response = await fetch("/api/logs");
@@ -110,9 +161,11 @@ export default function StationPage() {
                 source?: string;
             };
             if (result.source === "grok-voice" && result.transcript?.trim()) {
-                setGrokLive(true);
-                setGrokText((current) =>
-                    mergeLiveTranscript(current, result.transcript ?? ""),
+                setLiveHeard(
+                    mergeLiveTranscript(
+                        grokTextRef.current,
+                        result.transcript ?? "",
+                    ),
                 );
             }
         } catch {
@@ -276,6 +329,8 @@ export default function StationPage() {
                 try {
                     const wav = await esp.current.stopRecording();
                     setRecording(false);
+                    const browserHeard = await stopBrowserSttBackup();
+                    const liveHeard = grokTextRef.current.trim();
                     const form = new FormData();
                     form.set(
                         "audio",
@@ -285,28 +340,45 @@ export default function StationPage() {
                     );
                     form.set("crewId", "A01");
                     form.set("sentAt", new Date().toISOString());
-                    const response = await fetch("/api/voice", {
-                        method: "POST",
-                        body: form,
-                    });
-                    const result = (await response.json()) as {
+                    let result: {
                         transcript?: string;
                         voiceAssessment?: string;
                         source?: Finding["voiceEngine"];
                         error?: string;
-                    };
-                    const heard =
-                        result.transcript?.trim() || grokText.trim() || "";
+                    } = {};
+                    try {
+                        const response = await fetch("/api/voice", {
+                            method: "POST",
+                            body: form,
+                        });
+                        result = (await response.json()) as typeof result;
+                    } catch (error) {
+                        console.error("[iris uplink / stt request failed]", error);
+                    }
+                    const { heard, backup } = resolveHeardTranscript(
+                        result.transcript ?? "",
+                        browserHeard,
+                        liveHeard,
+                    );
                     console.log(
                         "[iris uplink / transcript]",
                         heard || "(empty)",
                     );
-                    console.log("[iris uplink / voice source]", result.source);
+                    console.log(
+                        "[iris uplink / voice source]",
+                        backup ? "browser-stt" : result.source,
+                    );
                     if (result.error)
                         console.error(
                             "[iris uplink / stt error]",
                             result.error,
                         );
+                    if (backup) {
+                        console.log(
+                            "[iris uplink / browser stt backup]",
+                            heard,
+                        );
+                    }
                     if (!heard) {
                         window.alert(
                             result.error ??
@@ -314,15 +386,26 @@ export default function StationPage() {
                         );
                         return;
                     }
-                    await investigate(heard, result.voiceAssessment, "voice");
+                    await investigate(
+                        heard,
+                        backup ? undefined : result.voiceAssessment,
+                        "voice",
+                    );
                     setFinding((current) =>
                         current
-                            ? { ...current, voiceEngine: result.source, heard }
+                            ? {
+                                  ...current,
+                                  voiceEngine: backup
+                                      ? "supplied"
+                                      : result.source,
+                                  heard,
+                              }
                             : current,
                     );
                 } catch (error) {
                     console.error("[iris uplink / esp record failed]", error);
                     setRecording(false);
+                    await stopBrowserSttBackup();
                     try {
                         if (esp.current?.connected) await esp.current.ping();
                     } catch {
@@ -347,9 +430,12 @@ export default function StationPage() {
             setEspBusy(true);
             try {
                 await esp.current.startRecording();
+                clearLiveHeard();
+                startBrowserSttBackup();
                 setRecording(true);
             } catch (error) {
                 console.error("[iris uplink / esp start failed]", error);
+                await stopBrowserSttBackup();
                 try {
                     if (esp.current?.connected) await esp.current.ping();
                 } catch {
@@ -387,6 +473,8 @@ export default function StationPage() {
             stopLiveTap.current = null;
             setRecording(false);
             stream.getTracks().forEach((track) => track.stop());
+            const browserHeard = await stopBrowserSttBackup();
+            const liveHeard = grokTextRef.current.trim();
             const form = new FormData();
             form.set(
                 "audio",
@@ -397,21 +485,36 @@ export default function StationPage() {
                 ),
             );
             form.set("sentAt", new Date().toISOString());
-            const response = await fetch("/api/voice", {
-                method: "POST",
-                body: form,
-            });
-            const result = (await response.json()) as {
+            let result: {
                 transcript?: string;
                 voiceAssessment?: string;
                 source?: Finding["voiceEngine"];
                 error?: string;
-            };
-            const heard = result.transcript?.trim() || grokText.trim() || "";
+            } = {};
+            try {
+                const response = await fetch("/api/voice", {
+                    method: "POST",
+                    body: form,
+                });
+                result = (await response.json()) as typeof result;
+            } catch (error) {
+                console.error("[iris uplink / stt request failed]", error);
+            }
+            const { heard, backup } = resolveHeardTranscript(
+                result.transcript ?? "",
+                browserHeard,
+                liveHeard,
+            );
             console.log("[iris uplink / transcript]", heard || "(empty)");
-            console.log("[iris uplink / voice source]", result.source);
+            console.log(
+                "[iris uplink / voice source]",
+                backup ? "browser-stt" : result.source,
+            );
             if (result.error)
                 console.error("[iris uplink / stt error]", result.error);
+            if (backup) {
+                console.log("[iris uplink / browser stt backup]", heard);
+            }
             if (!heard) {
                 window.alert(
                     result.error ??
@@ -419,20 +522,27 @@ export default function StationPage() {
                 );
                 return;
             }
-            if (result.source === "grok-voice") {
-                setGrokLive(true);
-                setGrokText(heard);
+            if (!backup && result.source === "grok-voice") {
+                setLiveHeard(heard);
             }
-            await investigate(heard, result.voiceAssessment, "voice");
+            await investigate(
+                heard,
+                backup ? undefined : result.voiceAssessment,
+                "voice",
+            );
             setFinding((current) =>
                 current
-                    ? { ...current, voiceEngine: result.source, heard }
+                    ? {
+                          ...current,
+                          voiceEngine: backup ? "supplied" : result.source,
+                          heard,
+                      }
                     : current,
             );
         };
         recorder.current = media;
-        setGrokText("");
-        setGrokLive(false);
+        clearLiveHeard();
+        startBrowserSttBackup();
         stopLiveTap.current = createPcmTap(stream, (file) => {
             void sendLiveChunk(file);
         });
@@ -888,8 +998,10 @@ export default function StationPage() {
                                                 ? "voiced"
                                                 : log.channel === "typed"
                                                   ? "typed"
-                                                  : log.channel}{" "}
-                                            · sent{" "}
+                                                  : log.channel === "speak"
+                                                    ? "Iris reply"
+                                                    : log.channel}{" "}
+                                            · {log.direction} · sent{" "}
                                             {formatClock(log.sentAt)} · recv{" "}
                                             {formatClock(
                                                 log.actualReceivedAt ??

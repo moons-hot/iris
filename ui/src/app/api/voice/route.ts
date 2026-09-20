@@ -59,7 +59,7 @@ export async function POST(request: Request) {
       receivedAt,
       channel: "voice",
       vesselId,
-      summary: transcript,
+      summary: `Crew report: ${transcript}`.slice(0, 500),
     });
     return Response.json({
       transcript,
@@ -84,9 +84,11 @@ export async function POST(request: Request) {
     receivedAt,
     channel: "voice",
     vesselId,
-    summary:
-      result.transcript.trim() ||
-      `${audio.name || "audio"} (${audio.size} bytes)`,
+    summary: (
+      result.transcript.trim()
+        ? `Crew report: ${result.transcript.trim()}`
+        : `${audio.name || "audio"} (${audio.size} bytes)`
+    ).slice(0, 500),
   });
   const status = result.source === "grok-voice" ? 200 : 202;
   return Response.json(

@@ -137,3 +137,29 @@ export function splitSpeakChunks(text: string, maxChars = 280): string[] {
   if (current) chunks.push(current);
   return chunks;
 }
+
+const COMMS_SUMMARY_MAX = 220;
+
+/**
+ * One-line Mission Control brief of what Iris told the astronaut.
+ * High-priority replies are prefixed with [ALERT] for ground triage.
+ */
+export function commsAiResponseSummary(input: {
+  speak: string;
+  severity?: "high" | "monitor";
+  crewReport?: string;
+}): string {
+  const briefing = (
+    truncateAtSentence(input.speak, COMMS_SUMMARY_MAX, 1) ||
+    "Iris replied to the crew report."
+  ).replace(/\u2014|\u2013/g, "-");
+  const crew = input.crewReport?.replace(/\s+/g, " ").trim();
+  const crewHint =
+    crew && crew.length > 0
+      ? `Re: ${crew.length > 72 ? `${crew.slice(0, 69).trimEnd()}…` : crew}. `
+      : "";
+  const priority =
+    input.severity === "high" ? "High priority: " : "Monitoring: ";
+  const prefix = input.severity === "high" ? "[ALERT] " : "";
+  return `${prefix}${crewHint}${priority}${briefing}`.slice(0, 500);
+}

@@ -3,7 +3,10 @@ import {
   investigationReply,
   type Snapshot,
 } from "@/lib/iris";
-import { investigationToSpeak } from "@/lib/speak-text";
+import {
+  commsAiResponseSummary,
+  investigationToSpeak,
+} from "@/lib/speak-text";
 import { parseSentAt, recordCommsLog } from "@/lib/tiger";
 
 export const runtime = "nodejs";
@@ -40,7 +43,8 @@ function telemetryBlock(
   telemetry?: Snapshot,
   packet?: ReturnType<typeof buildTelemetryPacket>,
 ) {
-  const lines = packet ?? (telemetry ? buildTelemetryPacket(telemetry) : undefined);
+  const lines =
+    packet ?? (telemetry ? buildTelemetryPacket(telemetry) : undefined);
   if (!lines) return "Telemetry packet unavailable";
   return [
     "Astronaut telemetry:",
@@ -52,6 +56,44 @@ function telemetryBlock(
     "Peer context:",
     ...lines.peers.map((line) => `- ${line}`),
   ].join("\n");
+}
+
+async function logCrewAndIris(input: {
+  channel: "typed" | "voice";
+  crewReport: string;
+  speak: string;
+  severity: "high" | "monitor";
+  sentAt: Date;
+  receivedAt: Date;
+  vesselId: string;
+}) {
+  // Voice uplink already stamps /api/voice — don't double-log the crew report.
+  const uplink =
+    input.channel === "voice"
+      ? null
+      : await recordCommsLog({
+          sentAt: input.sentAt,
+          receivedAt: input.receivedAt,
+          channel: "typed",
+          direction: "uplink",
+          vesselId: input.vesselId,
+          summary: `Crew report: ${input.crewReport}`.slice(0, 500),
+        });
+
+  const downlink = await recordCommsLog({
+    sentAt: new Date(),
+    receivedAt: new Date(),
+    channel: "speak",
+    direction: "downlink",
+    vesselId: input.vesselId,
+    summary: commsAiResponseSummary({
+      speak: input.speak,
+      severity: input.severity,
+      crewReport: input.crewReport,
+    }),
+  });
+
+  return { uplink, downlink };
 }
 
 export async function POST(request: Request) {
@@ -72,17 +114,9 @@ export async function POST(request: Request) {
   }
 
   const channel = body.channel === "voice" ? "voice" : "typed";
-  // Voice uplink already stamps /api/voice — don't double-log as typed.
-  const log =
-    channel === "voice"
-      ? null
-      : await recordCommsLog({
-          sentAt: parseSentAt(body.sentAt, receivedAt),
-          receivedAt,
-          channel: "typed",
-          vesselId: body.vesselId ?? "asteria",
-          summary: body.message.trim(),
-        });
+  const vesselId = body.vesselId ?? "asteria";
+  const sentAt = parseSentAt(body.sentAt, receivedAt);
+  const crewReport = body.message.trim();
 
   const fallback = investigationReply(
     body.message,
@@ -91,12 +125,38 @@ export async function POST(request: Request) {
   );
   const packetText = telemetryBlock(body.telemetry, fallback.telemetry);
 
-  if (!process.env.XAI_API_KEY) {
+  async function finish(payload: {
+    text: string;
+    speak: string;
+    source: "grok" | "onboard-demo";
+    modelWarning?: string;
+  }) {
+    const speak = payload.speak || investigationToSpeak(payload.text);
+    const severity = fallback.severity === "high" ? "high" : "monitor";
+    const log = await logCrewAndIris({
+      channel,
+      crewReport,
+      speak,
+      severity,
+      sentAt,
+      receivedAt,
+      vesselId,
+    });
     return Response.json({
       ...fallback,
+      text: payload.text,
+      speak,
+      source: payload.source,
+      modelWarning: payload.modelWarning,
+      log,
+    });
+  }
+
+  if (!process.env.XAI_API_KEY) {
+    return finish({
+      text: fallback.text,
       speak: investigationToSpeak(fallback.text),
       source: "onboard-demo",
-      log,
     });
   }
 
@@ -135,15 +195,14 @@ Call out the critical metrics that matter for this report and how they relate to
     if (!text) throw new Error("Empty Grok investigation reply");
     const speak = investigationToSpeak(text);
     console.log("[iris investigate / speak]", speak.slice(0, 240));
-    return Response.json({ ...fallback, text, speak, source: "grok", log });
+    return finish({ text, speak, source: "grok" });
   } catch {
-    return Response.json({
-      ...fallback,
+    return finish({
+      text: fallback.text,
       speak: investigationToSpeak(fallback.text),
       source: "onboard-demo",
       modelWarning:
         "Grok unavailable; used seeded onboard investigation context.",
-      log,
     });
   }
 }
