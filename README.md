@@ -26,17 +26,22 @@ speech fallback.
    families, ground alerts, and the Tiger downlink table. Onboard send stays instant; Tiger
    stores ground-receive 20 minutes later to show light-time from deep space.
 
-## ESP32 audio contract
+## ESP32 audio (USB + Web Serial)
 
-POST multipart form data to `/api/voice` with an `audio` field (WAV, PCM, or browser-supported
-recording) and optionally `crewId=A01`. The endpoint returns:
+Firmware lives in [`firmware/iris_station`](firmware/iris_station). Flash with Arduino IDE
+(ESP32-S3). Install **audio-driver** + **audio-tools** from GitHub (AudioKit is obsolete — see
+firmware README). On `/station`, click **Connect ESP32** and use the mic button: the UI sends
+`start` / `stop` over USB, receives a **24 kHz mono WAV**, posts it to Grok Voice via `/api/voice`,
+runs the investigation, then streams TTS PCM back to the speaker.
+
+See [`firmware/iris_station/README.md`](firmware/iris_station/README.md) for the serial JSON
+contract. The HTTP fallback (browser mic or Wi-Fi POST) is unchanged:
+
+POST multipart form data to `/api/voice` with an `audio` field and optionally `crewId=A01`:
 
 ```json
 { "transcript": "…", "voiceAssessment": "…" }
 ```
-
-For local Wi-Fi development, set `VOICE_INGEST_URL` to
-`http://<computer-lan-ip>:3000/api/voice`; ESP32 cannot resolve localhost on the host machine.
 
 NASA reference used in the investigation prompt:
 https://humanresearchroadmap.nasa.gov/Risks/risk.aspx?i=95

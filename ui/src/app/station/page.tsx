@@ -11,12 +11,23 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { formatClock, formatLatency } from "@/lib/format";
 import type { CommsLog, Snapshot } from "@/lib/mission-types";
 import { cn } from "@/lib/utils";
+import {
+  IrisEspLink,
+  mp3BlobToMonoPcm,
+} from "@/lib/esp32-serial";
+import { createPcmTap } from "@/lib/astronaut-mic";
+import { mergeLiveTranscript } from "@/lib/voice-wave";
 
 type Finding = {
   text: string;
   severity: "high" | "monitor";
   citations: { id: string; title: string; source: string }[];
   speak: string;
+  possibleConcerns?: string[];
+  recommendedActions?: string[];
+  source?: "grok" | "onboard-demo";
+  voiceEngine?: "grok-voice" | "onboard-demo" | "supplied";
+  heard?: string;
 };
 
 export default function StationPage() {
@@ -27,8 +38,16 @@ export default function StationPage() {
   const [recording, setRecording] = useState(false);
   const [logs, setLogs] = useState<CommsLog[]>([]);
   const [logsConfigured, setLogsConfigured] = useState(false);
+  const [espLinked, setEspLinked] = useState(false);
+  const [espBusy, setEspBusy] = useState(false);
+  const [grokReady, setGrokReady] = useState(false);
+  const [grokLive, setGrokLive] = useState(false);
+  const [grokText, setGrokText] = useState("");
   const recorder = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
+  const esp = useRef<IrisEspLink | null>(null);
+  const stopLiveTap = useRef<(() => void) | null>(null);
+  const liveInFlight = useRef(false);
 
   const refreshLogs = useCallback(async () => {
     const response = await fetch("/api/logs");
@@ -53,6 +72,42 @@ export default function StationPage() {
     return () => window.clearInterval(interval);
   }, [refresh]);
 
+  useEffect(() => {
+    void fetch("/api/voice")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((status: { grokVoice?: boolean } | null) => {
+        setGrokReady(Boolean(status?.grokVoice));
+      })
+      .catch(() => setGrokReady(false));
+  }, []);
+
+  async function sendLiveChunk(file: File) {
+    if (liveInFlight.current) return;
+    liveInFlight.current = true;
+    try {
+      const form = new FormData();
+      form.set("audio", file);
+      const response = await fetch("/api/voice/live", {
+        method: "POST",
+        body: form,
+      });
+      const result = (await response.json()) as {
+        transcript?: string;
+        source?: string;
+      };
+      if (result.source === "grok-voice" && result.transcript?.trim()) {
+        setGrokLive(true);
+        setGrokText((current) =>
+          mergeLiveTranscript(current, result.transcript ?? ""),
+        );
+      }
+    } catch {
+      setGrokLive(false);
+    } finally {
+      liveInFlight.current = false;
+    }
+  }
+
   async function speak(text: string) {
     const response = await fetch("/api/voice/speak", {
       method: "POST",
@@ -60,11 +115,44 @@ export default function StationPage() {
       body: JSON.stringify({ text }),
     });
     const type = response.headers.get("Content-Type") ?? "";
+    if (response.ok && type.startsWith("audio/") && esp.current?.connected) {
+      const pcm = await mp3BlobToMonoPcm(await response.blob());
+      await esp.current.playPcm(pcm);
+      return;
+    }
     if (response.ok && type.startsWith("audio/")) {
       const url = URL.createObjectURL(await response.blob());
       new Audio(url).play().catch(() => undefined);
     } else if ("speechSynthesis" in window) {
       window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+    }
+  }
+
+  async function connectEsp() {
+    if (esp.current?.connected) {
+      await esp.current.disconnect();
+      esp.current = null;
+      setEspLinked(false);
+      return;
+    }
+    try {
+      const link = new IrisEspLink();
+      await link.connect();
+      esp.current = link;
+      setEspLinked(true);
+      if (!link.hasAudio) {
+        window.alert(
+          "ESP32 linked, but audio init failed. Check the codec seating and Serial Monitor for errors.",
+        );
+      }
+    } catch (error) {
+      esp.current = null;
+      setEspLinked(false);
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Could not connect to ESP32 over Web Serial.",
+      );
     }
   }
 
@@ -78,11 +166,16 @@ export default function StationPage() {
         body: JSON.stringify({
           message: report,
           voiceAssessment,
+          telemetry: snapshot,
           sentAt: new Date().toISOString(),
         }),
       });
       const result = (await response.json()) as Finding;
-      setFinding(result);
+      setFinding({
+        ...result,
+        voiceEngine: result.voiceEngine,
+        heard: result.heard ?? report.trim(),
+      });
       setMessage("");
       await speak(result.speak);
       await refresh();
@@ -102,8 +195,58 @@ export default function StationPage() {
   }
 
   async function toggleRecording() {
+    if (esp.current?.connected) {
+      if (espBusy) return;
+      if (recording) {
+        setEspBusy(true);
+        try {
+          const wav = await esp.current.stopRecording();
+          setRecording(false);
+          const form = new FormData();
+          form.set(
+            "audio",
+            new File([wav], "astronaut-report.wav", { type: "audio/wav" }),
+          );
+          form.set("crewId", "A01");
+          form.set("sentAt", new Date().toISOString());
+          const response = await fetch("/api/voice", {
+            method: "POST",
+            body: form,
+          });
+          const result = (await response.json()) as {
+            transcript?: string;
+            voiceAssessment?: string;
+            source?: Finding["voiceEngine"];
+          };
+          const heard =
+            result.transcript?.trim() ||
+            grokText.trim() ||
+            "Voice report captured after scenario start.";
+          await investigate(heard, result.voiceAssessment);
+          setFinding((current) =>
+            current
+              ? { ...current, voiceEngine: result.source, heard }
+              : current,
+          );
+        } finally {
+          setEspBusy(false);
+        }
+        return;
+      }
+      setEspBusy(true);
+      try {
+        await esp.current.startRecording();
+        setRecording(true);
+      } finally {
+        setEspBusy(false);
+      }
+      return;
+    }
+
     if (recording) {
       recorder.current?.stop();
+      stopLiveTap.current?.();
+      stopLiveTap.current = null;
       return;
     }
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -111,6 +254,8 @@ export default function StationPage() {
     chunks.current = [];
     media.ondataavailable = (event) => chunks.current.push(event.data);
     media.onstop = async () => {
+      stopLiveTap.current?.();
+      stopLiveTap.current = null;
       setRecording(false);
       stream.getTracks().forEach((track) => track.stop());
       const form = new FormData();
@@ -128,12 +273,31 @@ export default function StationPage() {
         body: form,
       });
       const result = (await response.json()) as {
-        transcript: string;
-        voiceAssessment: string;
+        transcript?: string;
+        voiceAssessment?: string;
+        source?: Finding["voiceEngine"];
       };
-      await investigate(result.transcript, result.voiceAssessment);
+      const heard =
+        result.transcript?.trim() ||
+        grokText.trim() ||
+        "Voice report captured after scenario start.";
+      if (result.source === "grok-voice") {
+        setGrokLive(true);
+        setGrokText(heard);
+      }
+      await investigate(heard, result.voiceAssessment);
+      setFinding((current) =>
+        current
+          ? { ...current, voiceEngine: result.source, heard }
+          : current,
+      );
     };
     recorder.current = media;
+    setGrokText("");
+    setGrokLive(false);
+    stopLiveTap.current = createPcmTap(stream, (file) => {
+      void sendLiveChunk(file);
+    });
     media.start();
     setRecording(true);
   }
@@ -170,10 +334,43 @@ export default function StationPage() {
               <p className="text-xs text-muted-foreground">Onboard crew station</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <Button asChild variant="secondary">
               <Link href="/groundbase">Groundbase</Link>
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void connectEsp().catch(() => undefined)}
+            >
+              {espLinked ? "Disconnect ESP32" : "Connect ESP32"}
+            </Button>
+            <span
+              className={cn(
+                "rounded-full px-3 py-1.5 text-xs font-medium",
+                espLinked
+                  ? "bg-primary/15 text-primary"
+                  : "bg-muted text-muted-foreground",
+              )}
+            >
+              {espLinked ? "ESP32 linked" : "ESP32 offline"}
+            </span>
+            <span
+              className={cn(
+                "rounded-full px-3 py-1.5 text-xs font-medium",
+                grokLive
+                  ? "bg-emerald-500/15 text-emerald-500"
+                  : grokReady
+                    ? "bg-primary/15 text-primary"
+                    : "bg-muted text-muted-foreground",
+              )}
+            >
+              {grokLive
+                ? "Grok Voice live"
+                : grokReady
+                  ? "Grok Voice ready"
+                  : "Grok Voice offline"}
+            </span>
             <ThemeToggle />
             <span
               className={cn(
@@ -240,13 +437,23 @@ export default function StationPage() {
               }
               placeholder="Just ask me anything"
             />
+            {recording || grokText ? (
+              <p className="mt-2 truncate text-xs text-muted-foreground">
+                {grokLive
+                  ? `Grok Voice heard: ${grokText || "listening…"}`
+                  : grokReady
+                    ? "Grok Voice is capturing this report…"
+                    : "Recording locally…"}
+              </p>
+            ) : null}
           </div>
           <button
             type="button"
             onClick={() => void toggleRecording()}
+            disabled={loading || espBusy}
             aria-label="Record voice report"
             className={cn(
-              "grid size-24 shrink-0 place-items-center self-center rounded-full shadow-[var(--mic-shadow)] transition md:self-auto",
+              "grid size-24 shrink-0 place-items-center self-center rounded-full shadow-[var(--mic-shadow)] transition md:self-auto disabled:opacity-60",
               recording
                 ? "bg-destructive text-white"
                 : "bg-primary text-primary-foreground hover:bg-primary/85",
@@ -302,6 +509,11 @@ export default function StationPage() {
                   >
                     {finding.severity === "high" ? "High priority" : "Monitoring"}
                   </span>
+                  {finding.voiceEngine === "grok-voice" ? (
+                    <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-medium text-emerald-500">
+                      Heard by Grok Voice
+                    </span>
+                  ) : null}
                   <Button
                     variant="ghost"
                     size="icon-sm"
@@ -315,9 +527,41 @@ export default function StationPage() {
             </div>
             {finding ? (
               <div>
-                <p className="whitespace-pre-wrap text-sm leading-6">
-                  {finding.text.replaceAll("## ", "").replaceAll("**", "")}
-                </p>
+                {finding.heard && finding.voiceEngine === "grok-voice" ? (
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    Grok Voice heard: {finding.heard}
+                  </p>
+                ) : null}
+                {finding.possibleConcerns?.length ? (
+                  <div className="space-y-3 text-sm leading-6">
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground">
+                        Possible concerns
+                      </p>
+                      <ul className="mt-1 list-disc space-y-1 pl-4">
+                        {finding.possibleConcerns.map((concern) => (
+                          <li key={concern}>{concern}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    {finding.recommendedActions?.length ? (
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground">
+                          Immediate actions
+                        </p>
+                        <ul className="mt-1 list-disc space-y-1 pl-4">
+                          {finding.recommendedActions.map((action) => (
+                            <li key={action}>{action}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="whitespace-pre-wrap text-sm leading-6">
+                    {finding.text.replaceAll("## ", "").replaceAll("**", "")}
+                  </p>
+                )}
                 <div className="mt-4 flex flex-wrap gap-2">
                   {finding.citations.map((citation) => (
                     <span

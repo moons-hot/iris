@@ -9,21 +9,25 @@ export async function POST(request: Request) {
     return Response.json({ text: body.text, demoFallback: true });
   }
 
-  const response = await fetch("https://api.x.ai/v1/audio/speech", {
+  // https://docs.x.ai/docs/guides/voice — POST /v1/tts
+  const response = await fetch("https://api.x.ai/v1/tts", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${process.env.XAI_API_KEY}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "grok-voice",
-      input: body.text,
-      voice: "ara",
+      text: body.text,
+      voice_id: "eve",
+      language: "en",
     }),
   });
   if (!response.ok)
     return Response.json(
-      { error: "Grok Voice speech failed" },
+      {
+        error: "Grok Voice speech failed",
+        detail: await response.text(),
+      },
       { status: 502 },
     );
   return new Response(response.body, {
