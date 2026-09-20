@@ -70,10 +70,12 @@ export async function POST(request: Request) {
     );
   }
 
+  // xAI STT: model must be appended before file.
+  // https://docs.x.ai/docs/guides/voice
   const upstream = new FormData();
-  upstream.set("file", audio);
-  upstream.set("model", "grok-voice");
-  const response = await fetch("https://api.x.ai/v1/audio/transcriptions", {
+  upstream.set("model", "grok-voice-transcribe-2.0");
+  upstream.set("file", audio, audio.name || "recording.wav");
+  const response = await fetch("https://api.x.ai/v1/stt", {
     method: "POST",
     headers: { Authorization: `Bearer ${process.env.XAI_API_KEY}` },
     body: upstream,

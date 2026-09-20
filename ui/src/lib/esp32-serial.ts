@@ -3,10 +3,11 @@
  * @see firmware/iris_station/README.md
  */
 
-export const IRIS_SERIAL_BAUD = 921600;
+export const IRIS_SERIAL_BAUD = 115200;
 
 export type IrisSerialEvent =
-  | { evt: "ready" }
+  | { evt: "booting" }
+  | { evt: "ready"; audio?: boolean }
   | { evt: "recording" }
   | {
       evt: "stopped";
@@ -26,9 +27,14 @@ export class IrisEspLink {
   private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
   private lineBuffer = "";
+  private audioReady = false;
 
   get connected() {
     return this.port !== null;
+  }
+
+  get hasAudio() {
+    return this.audioReady;
   }
 
   async connect(): Promise<void> {
@@ -37,10 +43,50 @@ export class IrisEspLink {
     }
     this.port = await navigator.serial.requestPort();
     await this.port.open({ baudRate: IRIS_SERIAL_BAUD });
-    this.writer = this.port.writable!.getWriter();
-    this.reader = this.port.readable!.getReader();
-    await this.waitForEvent("ready");
-    await this.waitForEvent("idle");
+
+    // ESP32-S3 USB CDC often resets when the port opens ("Break received").
+    // Wait, then re-bind streams and ping for status.
+    await new Promise((r) => setTimeout(r, 1800));
+    await this.bindStreams();
+
+    try {
+      await this.sendLine({ cmd: "ping" });
+    } catch {
+      // Port may still be settling after reset — retry once.
+      await new Promise((r) => setTimeout(r, 1200));
+      await this.bindStreams();
+      await this.sendLine({ cmd: "ping" });
+    }
+
+    const ready = await this.waitForEvent("ready", 15_000);
+    this.audioReady = ready.evt === "ready" ? ready.audio !== false : false;
+    if (this.audioReady) {
+      // idle may already have arrived with the announce burst
+      try {
+        await this.waitForEvent("idle", 3_000);
+      } catch {
+        // ready-only is enough to proceed
+      }
+    }
+  }
+
+  private async bindStreams(): Promise<void> {
+    try {
+      this.reader?.releaseLock();
+    } catch {
+      /* ignore */
+    }
+    try {
+      this.writer?.releaseLock();
+    } catch {
+      /* ignore */
+    }
+    if (!this.port?.readable || !this.port.writable) {
+      throw new Error("Serial port lost after ESP32 reset — press RESET and Connect again.");
+    }
+    this.reader = this.port.readable.getReader();
+    this.writer = this.port.writable.getWriter();
+    this.lineBuffer = "";
   }
 
   async disconnect(): Promise<void> {
@@ -119,21 +165,39 @@ export class IrisEspLink {
 
   private async waitForEvent(
     expected: IrisSerialEvent["evt"],
+    timeoutMs = 30_000,
   ): Promise<IrisSerialEvent> {
+    const deadline = Date.now() + timeoutMs;
     for (;;) {
-      const event = await this.readEvent();
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        throw new Error(`Timed out waiting for ESP32 "${expected}"`);
+      }
+      const event = await this.readEvent(remaining);
+      if (!event) {
+        throw new Error(`Timed out waiting for ESP32 "${expected}"`);
+      }
+      // Non-fatal during bring-up (e.g. audio init failed but serial is up).
       if (event.evt === "error") {
+        if (expected === "ready") continue;
         throw new Error(event.msg);
       }
+      if (event.evt === "booting") continue;
       if (event.evt === expected) {
         return event;
       }
     }
   }
 
-  private async readEvent(): Promise<IrisSerialEvent> {
+  private async readEvent(timeoutMs?: number): Promise<IrisSerialEvent | null> {
+    const deadline =
+      timeoutMs === undefined ? undefined : Date.now() + timeoutMs;
     for (;;) {
-      const line = await this.readLine();
+      if (deadline !== undefined && Date.now() > deadline) return null;
+      const line = await this.readLine(
+        deadline === undefined ? undefined : Math.max(1, deadline - Date.now()),
+      );
+      if (line === null) return null;
       if (!line) continue;
       try {
         return JSON.parse(line) as IrisSerialEvent;
@@ -143,7 +207,9 @@ export class IrisEspLink {
     }
   }
 
-  private async readLine(): Promise<string | null> {
+  private async readLine(timeoutMs?: number): Promise<string | null> {
+    const deadline =
+      timeoutMs === undefined ? undefined : Date.now() + timeoutMs;
     for (;;) {
       const newline = this.lineBuffer.indexOf("\n");
       if (newline >= 0) {
@@ -152,6 +218,21 @@ export class IrisEspLink {
         return line.length ? line : "";
       }
       if (!this.reader) throw new Error("Serial not connected");
+      if (deadline !== undefined) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) return null;
+        const result = await Promise.race([
+          this.reader.read(),
+          new Promise<"timeout">((resolve) =>
+            setTimeout(() => resolve("timeout"), remaining),
+          ),
+        ]);
+        if (result === "timeout") return null;
+        const { value, done } = result;
+        if (done || !value) return null;
+        this.lineBuffer += new TextDecoder().decode(value);
+        continue;
+      }
       const { value, done } = await this.reader.read();
       if (done || !value) return null;
       this.lineBuffer += new TextDecoder().decode(value);

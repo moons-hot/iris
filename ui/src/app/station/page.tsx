@@ -189,10 +189,25 @@ export default function StationPage() {
       setEspLinked(false);
       return;
     }
-    const link = new IrisEspLink();
-    await link.connect();
-    esp.current = link;
-    setEspLinked(true);
+    try {
+      const link = new IrisEspLink();
+      await link.connect();
+      esp.current = link;
+      setEspLinked(true);
+      if (!link.hasAudio) {
+        window.alert(
+          "ESP32 linked, but audio init failed. Check the codec seating and Serial Monitor for errors.",
+        );
+      }
+    } catch (error) {
+      esp.current = null;
+      setEspLinked(false);
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Could not connect to ESP32 over Web Serial.",
+      );
+    }
   }
 
   async function investigate(report = message, voiceAssessment?: string) {
