@@ -34,8 +34,18 @@ describe("speak-text", () => {
       70,
       5,
     );
-    expect(speak.length).toBeLessThanOrEqual(70);
-    expect(speak).toContain("First sentence");
+    expect(speak).toBe("First sentence is fine. Second sentence is also fine.");
+    expect(speak.endsWith(".")).toBe(true);
+    expect(speak).not.toContain("Third");
+  });
+
+  it("never hard-cuts mid-sentence even when the first sentence is long", () => {
+    const long =
+      "This is one long complete sentence that clearly exceeds seventy characters all by itself.";
+    const speak = investigationToSpeak(`${long} Second is dropped.`, 70, 5);
+    expect(speak).toBe(long);
+    expect(speak.endsWith(".")).toBe(true);
+    expect(speak).not.toContain("Second");
   });
 
   it("keeps cabin briefings to at most five sentences", () => {

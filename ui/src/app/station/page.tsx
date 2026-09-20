@@ -311,7 +311,7 @@ export default function StationPage() {
         }
     }
 
-    async function selectScenario(scenario: "mild" | "dire") {
+    async function selectScenario(scenario: "nominal" | "mild" | "dire") {
         await fetch("/api/monitoring/tick", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -571,7 +571,13 @@ export default function StationPage() {
     );
     const spe = snapshot.space.find((metric) => metric.label === "SPE flux");
     const dire = snapshot.scenario === "dire";
+    const mild = snapshot.scenario === "mild";
     const flareActive = (flare?.value ?? 0) >= 1;
+    const statusLabel = dire
+        ? "Solar flare"
+        : mild
+          ? "Vitals drift"
+          : "Nominal";
 
     return (
         <main className="min-h-screen px-4 py-6 md:px-8 md:py-8">
@@ -628,10 +634,12 @@ export default function StationPage() {
                                 "rounded-full px-3 py-1.5 text-xs font-medium",
                                 dire
                                     ? "bg-destructive/15 text-destructive"
-                                    : "bg-muted text-muted-foreground",
+                                    : mild
+                                      ? "bg-primary/15 text-primary"
+                                      : "bg-muted text-muted-foreground",
                             )}
                         >
-                            {flareActive ? "Solar flare" : "Nominal"}
+                            {statusLabel}
                         </span>
                         <div className="flex items-center gap-2 rounded-full bg-card/90 py-1.5 pr-4 pl-1.5 shadow-[var(--chip-shadow)]">
                             <div className="grid size-8 place-items-center rounded-full bg-primary/20 text-xs font-medium">
@@ -666,7 +674,7 @@ export default function StationPage() {
                             variant="secondary"
                             className={cn(
                                 "rounded-full",
-                                snapshot.scenario === "mild" &&
+                                mild &&
                                     "bg-foreground text-background hover:bg-foreground/90",
                             )}
                             onClick={() => void selectScenario("mild")}
@@ -896,6 +904,7 @@ export default function StationPage() {
                                 <MetricTile
                                     key={metric.label}
                                     metric={metric}
+                                    scenario={snapshot.scenario}
                                 />
                             ))}
                         </div>
@@ -910,6 +919,7 @@ export default function StationPage() {
                                 <MetricTile
                                     key={metric.label}
                                     metric={metric}
+                                    scenario={snapshot.scenario}
                                 />
                             ))}
                         </div>
@@ -922,9 +932,17 @@ export default function StationPage() {
                         {flare ? <FlareStatus metric={flare} /> : null}
                         <div className="grid grid-cols-2 gap-x-4 gap-y-5">
                             {radiation ? (
-                                <MetricTile metric={radiation} />
+                                <MetricTile
+                                    metric={radiation}
+                                    scenario={snapshot.scenario}
+                                />
                             ) : null}
-                            {spe ? <MetricTile metric={spe} /> : null}
+                            {spe ? (
+                                <MetricTile
+                                    metric={spe}
+                                    scenario={snapshot.scenario}
+                                />
+                            ) : null}
                         </div>
                     </Panel>
                 </div>
@@ -1025,29 +1043,44 @@ export default function StationPage() {
                         Other crew
                     </p>
                     <div className="grid gap-3 sm:grid-cols-2">
-                        {snapshot.peers.map((peer) => (
-                            <div
-                                className="flex items-center justify-between rounded-full bg-muted/60 py-2 pr-4 pl-2"
-                                key={peer.id}
-                            >
-                                <div className="flex items-center gap-3">
-                                    <div className="grid size-9 place-items-center rounded-full bg-card text-xs font-medium">
-                                        {peer.id}
+                        {snapshot.peers.map((peer) => {
+                            const peerTint =
+                                dire && peer.heartRate >= 100
+                                    ? "text-[oklch(0.48_0.16_25)] dark:text-[oklch(0.72_0.12_25)]"
+                                    : dire && peer.heartRate >= 85
+                                      ? "text-[oklch(0.55_0.13_30)] dark:text-[oklch(0.76_0.1_30)]"
+                                      : mild && peer.heartRate >= 78
+                                        ? "text-[oklch(0.58_0.09_40)] dark:text-[oklch(0.78_0.07_40)]"
+                                        : "text-muted-foreground";
+                            return (
+                                <div
+                                    className="flex items-center justify-between rounded-full bg-muted/60 py-2 pr-4 pl-2"
+                                    key={peer.id}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className="grid size-9 place-items-center rounded-full bg-card text-xs font-medium">
+                                            {peer.id}
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-medium">
+                                                {peer.name}
+                                            </p>
+                                            <p className="text-[11px] text-muted-foreground">
+                                                {peer.status}
+                                            </p>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <p className="text-sm font-medium">
-                                            {peer.name}
-                                        </p>
-                                        <p className="text-[11px] text-muted-foreground">
-                                            {peer.status}
-                                        </p>
-                                    </div>
+                                    <span
+                                        className={cn(
+                                            "text-sm tabular-nums",
+                                            peerTint,
+                                        )}
+                                    >
+                                        {peer.heartRate} bpm
+                                    </span>
                                 </div>
-                                <span className="text-sm tabular-nums text-muted-foreground">
-                                    {peer.heartRate} bpm
-                                </span>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </Panel>
             </div>

@@ -21,7 +21,7 @@ export type Snapshot = {
   peers: { id: string; name: string; status: string; heartRate: number }[];
 };
 
-export type VesselKind = "habitat" | "shuttle" | "rocket";
+export type VesselKind = "shuttle" | "rocket";
 export type VesselStatus = "nominal" | "watch" | "alert";
 
 export type MissionAlert = {

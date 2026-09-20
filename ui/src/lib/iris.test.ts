@@ -16,7 +16,7 @@ afterEach(() => {
 describe("Iris onboard context", () => {
   it("compares telemetry against the astronaut's personal baseline", () => {
     const snapshot = getSnapshot();
-    expect(snapshot.vitals.find((metric) => metric.label === "Heart rate")?.baseline).toBe(62);
+    expect(snapshot.vitals.find((metric) => metric.label === "Heart rate")?.baseline).toBe(72);
     expect(snapshot.astronaut.id).toBe("A01");
   });
 
@@ -101,13 +101,13 @@ describe("Iris onboard context", () => {
 
     expect(hr?.value).toBeGreaterThan(74);
     expect(hr?.direction).toBe("up");
-    expect(bp?.value).toBeGreaterThan(124);
+    expect(bp?.value).toBeGreaterThan(120);
     expect(bp?.direction).toBe("up");
-    expect(temp?.value).toBeGreaterThan(37.2);
+    expect(temp?.value).toBeGreaterThan(36.9);
     expect(temp?.direction).toBe("up");
-    expect(spo2?.value).toBeLessThan(97);
+    expect(spo2?.value).toBeLessThan(98);
     expect(spo2?.direction).toBe("down");
-    expect(rr?.value).toBeGreaterThan(18);
+    expect(rr?.value).toBeGreaterThan(15);
     expect(rr?.direction).toBe("up");
   });
 

@@ -147,10 +147,11 @@ type VesselDef = VesselInfo & {
 };
 
 const specs: Record<Scenario, Spec> = {
+  // State 1 — default resting band (~70s bpm)
   nominal: {
-    hr: 62,
-    sys: 112,
-    dia: 72,
+    hr: 72,
+    sys: 118,
+    dia: 74,
     temp: 36.7,
     spo2: 98,
     rr: 14,
@@ -161,20 +162,22 @@ const specs: Record<Scenario, Spec> = {
     pressure: 101.3,
     spe: 0.4,
   },
+  // State 2 — slight vitals drift (still cabin / exertion range)
   mild: {
-    hr: 84,
-    sys: 134,
-    dia: 86,
-    temp: 37.6,
-    spo2: 94,
-    rr: 22,
-    co2: 0.78,
+    hr: 82,
+    sys: 126,
+    dia: 80,
+    temp: 37.2,
+    spo2: 96,
+    rr: 18,
+    co2: 0.72,
     radiation: 0.2,
     oxygen: 20.8,
     suit: 29.4,
     pressure: 101.1,
     spe: 0.5,
   },
+  // State 3 — major flare / radiation window
   dire: {
     hr: 118,
     sys: 84,
@@ -269,10 +272,10 @@ function peerHeartRate(
     activeScenario === "dire"
       ? baseline + 38
       : activeScenario === "mild"
-        ? baseline + 16
+        ? baseline + 8
         : baseline;
   const magnitude =
-    activeScenario === "dire" ? 7 : activeScenario === "mild" ? 4.5 : 2.2;
+    activeScenario === "dire" ? 7 : activeScenario === "mild" ? 3 : 2.2;
   return (
     sampleSeries(center, magnitude, 0, { tick: t, phase }).at(-1) ?? center
   );
@@ -374,11 +377,11 @@ function snapshotFrom(
     astronaut,
     scenario: activeScenario,
     vitals: [
-      metric("Heart rate", hrHistory, "bpm", 62, 1.2, {
+      metric("Heart rate", hrHistory, "bpm", 72, 1.2, {
         direction:
           activeScenario === "nominal" ? directionFrom(hrHistory, 1.2) : "up",
       }),
-      metric("Blood pressure", sysHistory, `/${latestDia} mmHg`, 112, 1.5, {
+      metric("Blood pressure", sysHistory, `/${latestDia} mmHg`, 118, 1.5, {
         direction:
           activeScenario === "mild"
             ? "up"
@@ -455,15 +458,15 @@ function snapshotFrom(
 }
 
 const ASTERIA_PEER_ROSTER = [
-  { id: "A02", name: "Jonah Reyes", heartRate: 65 },
-  { id: "A03", name: "Elena Park", heartRate: 59 },
+  { id: "A02", name: "Jonah Reyes", heartRate: 70 },
+  { id: "A03", name: "Elena Park", heartRate: 68 },
 ] as const;
 
 const VESSELS: VesselDef[] = [
   {
     id: DEFAULT_VESSEL_ID,
     name: "Asteria",
-    kind: "habitat",
+    kind: "shuttle",
     callsign: "AST-1",
     destination: "Deep-space cruise",
     astronaut: { id: "A01", name: "Mara Voss", missionDay: 184 },
@@ -781,10 +784,10 @@ export function investigationReply(
     ? voiceAssessment
     : "no additional voice cues";
   const observations = dire
-    ? `Voice report: "${input}". Voice signal: ${voice}. Astronaut: heart rate ${heartRate.value} bpm vs personal baseline 62, blood pressure ${bloodPressure.value}${bloodPressure.unit}, temperature ${temperature?.value ?? "elevated"} °C, SpO₂ ${spo2?.value ?? "n/a"}%. Habitat: cabin O₂ ${oxygen?.value ?? "n/a"}%, cabin CO₂ ${co2?.value ?? "n/a"}%. Space weather: hull radiation ${radiation.value} mSv/h, solar flare ${flare?.unit ?? "active"}.`
+      ? `Voice report: "${input}". Voice signal: ${voice}. Astronaut: heart rate ${heartRate.value} bpm vs personal baseline 72, blood pressure ${bloodPressure.value}${bloodPressure.unit}, temperature ${temperature?.value ?? "elevated"} °C, SpO₂ ${spo2?.value ?? "n/a"}%. Habitat: cabin O₂ ${oxygen?.value ?? "n/a"}%, cabin CO₂ ${co2?.value ?? "n/a"}%. Space weather: hull radiation ${radiation.value} mSv/h, solar flare ${flare?.unit ?? "active"}.`
     : mild
-      ? `Voice report: "${input}". Voice signal: ${voice}. Astronaut: heart rate ${heartRate.value} bpm vs personal baseline 62, blood pressure ${bloodPressure.value}${bloodPressure.unit}, temperature ${temperature?.value ?? "elevated"} °C, SpO₂ ${spo2?.value ?? "n/a"}%, respiratory rate ${rr?.value ?? "elevated"} /min. Cabin CO₂ is ${co2?.value ?? "elevated"}% versus 0.61%.`
-      : `Voice report: "${input}". Voice signal: ${voice}. Astronaut heart rate is ${heartRate.value} bpm against a personal resting baseline of 62 bpm. Cabin air and space weather remain near the current mission baseline.`;
+      ? `Voice report: "${input}". Voice signal: ${voice}. Astronaut: heart rate ${heartRate.value} bpm vs personal baseline 72, blood pressure ${bloodPressure.value}${bloodPressure.unit}, temperature ${temperature?.value ?? "elevated"} °C, SpO₂ ${spo2?.value ?? "n/a"}%, respiratory rate ${rr?.value ?? "elevated"} /min. Cabin CO₂ is ${co2?.value ?? "elevated"}% versus 0.61%.`
+      : `Voice report: "${input}". Voice signal: ${voice}. Astronaut heart rate is ${heartRate.value} bpm against a personal resting baseline of 72 bpm. Cabin air and space weather remain near the current mission baseline.`;
   const possibleConcerns = dire
     ? [
         "Acute radiation-related illness to investigate given rising hull dose rate, an active solar event, and reported visual or GI symptoms.",

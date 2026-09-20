@@ -1,6 +1,7 @@
-/** Cabin speaker briefing: 4–5 sentences max, causal + OSDR, not a vitals dump. */
+/** Cabin speaker briefing: prefer full sentences (up to 5). Never cut mid-sentence. */
 const DEFAULT_SPEAK_MAX_SENTENCES = 5;
-const DEFAULT_SPEAK_MAX_CHARS = 520;
+/** Soft length guide only — a long first sentence is kept whole. */
+const DEFAULT_SPEAK_MAX_CHARS = 2000;
 
 /** Prefer a dedicated Speak section when Grok provides one. */
 export function extractSpeakSection(markdown: string): string | null {
@@ -80,7 +81,11 @@ function sentencesOf(text: string): string[] {
     .filter(Boolean);
 }
 
-/** Keep spoken replies to a few sentences without cutting mid-thought when possible. */
+/**
+ * Keep spoken replies to a few full sentences.
+ * Never hard-slices mid-sentence — only drops later complete sentences.
+ * If the first sentence alone is longer than maxChars, it is still kept whole.
+ */
 export function truncateAtSentence(
   text: string,
   maxChars = DEFAULT_SPEAK_MAX_CHARS,
@@ -90,16 +95,20 @@ export function truncateAtSentence(
   if (!cleaned) return cleaned;
 
   const sentences = sentencesOf(cleaned);
+  if (sentences.length === 0) return cleaned;
+
   let out = "";
   let count = 0;
   for (const sentence of sentences) {
     if (count >= maxSentences) break;
     const next = out ? `${out} ${sentence}` : sentence;
+    // Soft budget: never add another sentence past the guide, but always keep
+    // at least the first complete sentence even if it is long.
     if (out && next.length > maxChars) break;
     out = next;
     count += 1;
   }
-  return out || cleaned.slice(0, maxChars).trim();
+  return out;
 }
 
 /** Turn investigation markdown into a short spoken briefing for TTS. */
@@ -113,7 +122,7 @@ export function investigationToSpeak(
   return truncateAtSentence(prose, maxChars, maxSentences);
 }
 
-/** Split long spoken replies into TTS-friendly chunks without cutting mid-sentence when possible. */
+/** Split long spoken replies into TTS-friendly chunks without cutting mid-sentence. */
 export function splitSpeakChunks(text: string, maxChars = 280): string[] {
   const cleaned = text.replace(/\s+/g, " ").trim();
   if (!cleaned) return [];
@@ -124,6 +133,7 @@ export function splitSpeakChunks(text: string, maxChars = 280): string[] {
   let current = "";
   for (const sentence of sentences) {
     if (!current) {
+      // Keep an oversized sentence whole rather than splitting it.
       current = sentence;
       continue;
     }

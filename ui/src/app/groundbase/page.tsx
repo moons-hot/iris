@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Rocket, Satellite, Telescope } from "lucide-react";
+import { AlertTriangle, Rocket, Satellite } from "lucide-react";
 
 import { FlareStatus, MetricTile, Panel } from "@/components/mission/metrics";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -18,7 +18,7 @@ import type {
 import { cn } from "@/lib/utils";
 
 function CraftIcon({ kind }: { kind: VesselKind }) {
-  const Icon = kind === "rocket" ? Rocket : kind === "habitat" ? Telescope : Satellite;
+  const Icon = kind === "rocket" ? Rocket : Satellite;
   return <Icon className="size-5" />;
 }
 
@@ -288,7 +288,7 @@ export default function GroundbasePage() {
         <div className="grid gap-4 lg:grid-cols-12">
           <Panel className="lg:col-span-4">
             <div className="mb-4 flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">Crew</p>
+              <p className="text-sm text-muted-foreground">Crew leader</p>
               <p className="text-xs text-muted-foreground">vs baseline</p>
             </div>
             <div className="grid grid-cols-2 gap-x-6 gap-y-5">
