@@ -18,6 +18,7 @@ export async function POST(request: Request) {
     message?: string;
     voiceAssessment?: string;
     sentAt?: string;
+    vesselId?: string;
   };
   if (!body.message?.trim()) {
     return Response.json(
@@ -30,6 +31,7 @@ export async function POST(request: Request) {
     sentAt: parseSentAt(body.sentAt, receivedAt),
     receivedAt,
     channel: "typed",
+    vesselId: body.vesselId ?? "asteria",
     summary: body.message.trim(),
   });
 

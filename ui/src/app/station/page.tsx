@@ -1,125 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Mic, Volume2 } from "lucide-react";
 
+import { FlareStatus, MetricTile, Panel } from "@/components/mission/metrics";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { formatClock, formatLatency } from "@/lib/format";
+import type { CommsLog, Snapshot } from "@/lib/mission-types";
 import { cn } from "@/lib/utils";
 
-type Metric = {
-  label: string;
-  value: number;
-  unit: string;
-  baseline: number;
-  direction: "stable" | "up" | "down";
-  history: number[];
-  historyText?: string[];
-};
-type Snapshot = {
-  astronaut: { id: string; name: string; missionDay: number };
-  scenario: "nominal" | "mild" | "dire";
-  vitals: Metric[];
-  cabin: Metric[];
-  space: Metric[];
-  peers: { id: string; name: string; status: string; heartRate: number }[];
-};
 type Finding = {
   text: string;
   severity: "high" | "monitor";
   citations: { id: string; title: string; source: string }[];
   speak: string;
 };
-type CommsLog = {
-  id: string;
-  sentAt: string;
-  receivedAt: string;
-  latencyMs: number;
-  channel: "typed" | "voice" | "speak";
-  direction: "uplink" | "downlink";
-  crewId: string;
-  summary: string;
-};
-
-function formatClock(iso: string) {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "--:--:--";
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}:${String(date.getSeconds()).padStart(2, "0")}`;
-}
-
-function Panel({
-  className,
-  children,
-}: {
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <section
-      className={cn(
-        "rounded-[1.75rem] bg-card/90 p-5 shadow-[var(--panel-shadow)]",
-        className,
-      )}
-    >
-      {children}
-    </section>
-  );
-}
-
-function MetricTile({ metric }: { metric: Metric }) {
-  return (
-    <div className="min-w-0">
-      <p className="text-xs text-muted-foreground">{metric.label}</p>
-      <p className="mt-1 text-2xl font-medium tracking-tight tabular-nums">
-        {metric.value}
-        <span
-          className={
-            metric.unit.startsWith("/")
-              ? "text-sm font-normal text-muted-foreground"
-              : "ml-1 text-sm font-normal text-muted-foreground"
-          }
-        >
-          {metric.unit}
-        </span>
-      </p>
-      <p className="mt-1 text-[11px] text-muted-foreground">
-        Baseline{" "}
-        {metric.label === "Blood pressure"
-          ? "112/72 mmHg"
-          : `${metric.baseline}${metric.unit}`}{" "}
-        · {metric.direction}
-      </p>
-    </div>
-  );
-}
-
-function FlareStatus({ metric }: { metric: Metric }) {
-  const active = metric.value >= 1;
-  return (
-    <div
-      className={cn(
-        "flex min-h-[6.5rem] flex-col justify-center rounded-[1.5rem] px-4 py-3",
-        active ? "bg-destructive/12" : "bg-muted/60",
-      )}
-    >
-      <p className="text-xs text-muted-foreground">Solar flare</p>
-      <p
-        className={cn(
-          "mt-1 text-3xl font-medium tracking-tight",
-          active && "text-destructive",
-        )}
-      >
-        {active ? "Active" : "Quiet"}
-      </p>
-      <p className="mt-1 text-[11px] text-muted-foreground">
-        {active
-          ? "SPE in progress · move to shielding"
-          : "No event · hull exposure nominal"}
-      </p>
-    </div>
-  );
-}
 
 export default function StationPage() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -273,6 +171,9 @@ export default function StationPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <Button asChild variant="secondary">
+              <Link href="/groundbase">Groundbase</Link>
+            </Button>
             <ThemeToggle />
             <span
               className={cn(
@@ -455,7 +356,8 @@ export default function StationPage() {
                     <p className="truncate text-sm">{log.summary}</p>
                     <p className="mt-0.5 text-[11px] text-muted-foreground">
                       {log.channel} · sent {formatClock(log.sentAt)} · recv{" "}
-                      {formatClock(log.receivedAt)} · {log.latencyMs} ms
+                      {formatClock(log.actualReceivedAt ?? log.receivedAt)} ·{" "}
+                      {formatLatency(log.actualLatencyMs ?? log.latencyMs)}
                     </p>
                   </div>
                 ))}
