@@ -13,10 +13,15 @@ import type { CommsLog, Snapshot } from "@/lib/mission-types";
 import { cn } from "@/lib/utils";
 import {
   IrisEspLink,
+  IRIS_PCM_RATE,
   mp3BlobToMonoPcm,
+  applyPcm16Gain,
 } from "@/lib/esp32-serial";
 import { createPcmTap } from "@/lib/astronaut-mic";
+import { startBrowserStt, type BrowserSttSession } from "@/lib/browser-stt";
+import { splitSpeakChunks, truncateAtSentence } from "@/lib/speak-text";
 import { mergeLiveTranscript } from "@/lib/voice-wave";
+import { pcm16ToWav } from "@/lib/usb-voice";
 
 type Finding = {
   text: string;
@@ -48,6 +53,7 @@ export default function StationPage() {
   const esp = useRef<IrisEspLink | null>(null);
   const stopLiveTap = useRef<(() => void) | null>(null);
   const liveInFlight = useRef(false);
+  const browserStt = useRef<BrowserSttSession | null>(null);
 
   const refreshLogs = useCallback(async () => {
     const response = await fetch("/api/logs");
@@ -115,35 +121,85 @@ export default function StationPage() {
   }
 
   async function speak(text: string) {
-    console.log("[iris downlink / bot says]", text);
-    const response = await fetch("/api/voice/speak", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-    });
-    const type = response.headers.get("Content-Type") ?? "";
-    if (response.ok && type.startsWith("audio/") && esp.current?.connected) {
-      const pcm = await mp3BlobToMonoPcm(await response.blob());
-      await esp.current.playPcm(pcm);
-      return;
-    }
-    if (response.ok && type.startsWith("audio/")) {
-      const url = URL.createObjectURL(await response.blob());
-      new Audio(url).play().catch(() => undefined);
-    } else if ("speechSynthesis" in window) {
-      window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+    const spoken = truncateAtSentence(text, 140);
+    const chunks = splitSpeakChunks(spoken, 140);
+    console.log(
+      "[iris downlink / bot says]",
+      chunks.length > 1 ? `(${chunks.length} parts) ${spoken}` : spoken,
+    );
+    for (const [index, chunk] of chunks.entries()) {
+      if (chunks.length > 1) {
+        console.log(`[iris downlink / speak part ${index + 1}/${chunks.length}]`, chunk);
+      }
+      try {
+        const response = await fetch("/api/voice/speak", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: chunk }),
+        });
+        const type = (response.headers.get("Content-Type") ?? "").toLowerCase();
+        if (response.ok && type.startsWith("audio/") && esp.current?.connected) {
+          const blob = await response.blob();
+          const pcm = type.includes("pcm")
+            ? applyPcm16Gain(new Uint8Array(await blob.arrayBuffer())).buffer
+            : await mp3BlobToMonoPcm(blob);
+          await esp.current.playPcm(pcm);
+          continue;
+        }
+        if (response.ok && type.startsWith("audio/")) {
+          const blob = await response.blob();
+          // Raw PCM needs a WAV wrapper for the browser Audio element.
+          const playable = type.includes("pcm")
+            ? pcm16ToWav(
+                applyPcm16Gain(new Uint8Array(await blob.arrayBuffer()), 0.85),
+                IRIS_PCM_RATE,
+              )
+            : blob;
+          const url = URL.createObjectURL(playable);
+          await new Promise<void>((resolve) => {
+            const audio = new Audio(url);
+            audio.onended = () => resolve();
+            audio.onerror = () => resolve();
+            audio.play().catch(() => resolve());
+          });
+          continue;
+        }
+        if ("speechSynthesis" in window) {
+          await new Promise<void>((resolve) => {
+            const utter = new SpeechSynthesisUtterance(chunk);
+            utter.rate = 1.05;
+            utter.onend = () => resolve();
+            utter.onerror = () => resolve();
+            window.speechSynthesis.speak(utter);
+          });
+        }
+      } catch (error) {
+        console.error("[iris downlink / speak failed]", error);
+        // Keep the link up when possible — auto-disconnect after TTS made the
+        // next Connect race a wedged play/receive state on the ESP.
+        try {
+          if (esp.current?.connected) await esp.current.ping();
+        } catch {
+          if (esp.current) {
+            await esp.current.disconnect().catch(() => undefined);
+            esp.current = null;
+            setEspLinked(false);
+          }
+        }
+        break;
+      }
     }
   }
 
   async function connectEsp() {
     if (esp.current?.connected) {
-      await esp.current.disconnect();
+      await esp.current.disconnect().catch(() => undefined);
       esp.current = null;
       setEspLinked(false);
       return;
     }
+    const link = new IrisEspLink();
     try {
-      const link = new IrisEspLink();
       await link.connect();
       esp.current = link;
       setEspLinked(true);
@@ -153,6 +209,7 @@ export default function StationPage() {
         );
       }
     } catch (error) {
+      await link.disconnect().catch(() => undefined);
       esp.current = null;
       setEspLinked(false);
       window.alert(
@@ -190,7 +247,13 @@ export default function StationPage() {
         heard: result.heard ?? report.trim(),
       });
       setMessage("");
-      await speak(result.speak);
+      const spoken = truncateAtSentence(
+        result.speak?.trim() ||
+          result.text?.replace(/[#*_`[\]]/g, " ").replace(/\s+/g, " ").trim() ||
+          "",
+        140,
+      );
+      if (spoken) await speak(spoken);
       await refresh();
     } finally {
       setLoading(false);
@@ -230,18 +293,44 @@ export default function StationPage() {
             transcript?: string;
             voiceAssessment?: string;
             source?: Finding["voiceEngine"];
+            error?: string;
           };
           const heard =
             result.transcript?.trim() ||
             grokText.trim() ||
-            "Voice report captured after scenario start.";
-          console.log("[iris uplink / transcript]", heard);
+            "";
+          console.log("[iris uplink / transcript]", heard || "(empty)");
           console.log("[iris uplink / voice source]", result.source);
+          if (result.error) console.error("[iris uplink / stt error]", result.error);
+          if (!heard) {
+            window.alert(
+              result.error ??
+                "Could not transcribe that recording. Try again closer to the mic.",
+            );
+            return;
+          }
           await investigate(heard, result.voiceAssessment);
           setFinding((current) =>
             current
               ? { ...current, voiceEngine: result.source, heard }
               : current,
+          );
+        } catch (error) {
+          console.error("[iris uplink / esp record failed]", error);
+          setRecording(false);
+          try {
+            if (esp.current?.connected) await esp.current.ping();
+          } catch {
+            if (esp.current) {
+              await esp.current.disconnect().catch(() => undefined);
+              esp.current = null;
+              setEspLinked(false);
+            }
+          }
+          window.alert(
+            error instanceof Error
+              ? error.message
+              : "ESP recording failed — reconnect and try again.",
           );
         } finally {
           setEspBusy(false);
@@ -252,6 +341,22 @@ export default function StationPage() {
       try {
         await esp.current.startRecording();
         setRecording(true);
+      } catch (error) {
+        console.error("[iris uplink / esp start failed]", error);
+        try {
+          if (esp.current?.connected) await esp.current.ping();
+        } catch {
+          if (esp.current) {
+            await esp.current.disconnect().catch(() => undefined);
+            esp.current = null;
+            setEspLinked(false);
+          }
+        }
+        window.alert(
+          error instanceof Error
+            ? error.message
+            : "Could not start ESP recording — reconnect and try again.",
+        );
       } finally {
         setEspBusy(false);
       }
@@ -291,13 +396,22 @@ export default function StationPage() {
         transcript?: string;
         voiceAssessment?: string;
         source?: Finding["voiceEngine"];
+        error?: string;
       };
       const heard =
         result.transcript?.trim() ||
         grokText.trim() ||
-        "Voice report captured after scenario start.";
-      console.log("[iris uplink / transcript]", heard);
+        "";
+      console.log("[iris uplink / transcript]", heard || "(empty)");
       console.log("[iris uplink / voice source]", result.source);
+      if (result.error) console.error("[iris uplink / stt error]", result.error);
+      if (!heard) {
+        window.alert(
+          result.error ??
+            "Could not transcribe that recording. Try again closer to the mic.",
+        );
+        return;
+      }
       if (result.source === "grok-voice") {
         setGrokLive(true);
         setGrokText(heard);

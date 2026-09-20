@@ -796,10 +796,10 @@ export function investigationReply(
     telemetry: packet,
     text: `## Iris investigation update\n\n**Observed** — ${observations}\n\n**Possible concerns to investigate** — ${possibleConcerns.join(" ")}\n\n**Immediate actions** — ${recommendedActions.join(" ")}\n\n**Working interpretation** — ${hypothesis}\n\n**Historical context** — ${evidence.map((item) => `[${item.id}] ${item.snippet}`).join(" ")}`,
     speak: dire
-      ? "I am flagging a high-priority concern. Move to shielding now, then we will repeat your blood pressure."
+      ? "High-priority concern — move to shielding now and notify the crew medical lead."
       : mild
-        ? "Your pulse, blood pressure, and temperature are above your personal baseline. SpO₂ is down, breathing is faster, and cabin CO2 is up. Sit, hydrate, and we will recheck."
-        : "Your current measurements are close to your personal baseline. Let us repeat them after a short supported rest.",
+        ? "I heard you. Vitals and cabin CO2 are off baseline — sit, hydrate, recheck in five minutes."
+        : "I heard you. Readings are near baseline — sit, recheck pulse in five minutes, and tell me if anything changes.",
     citations: evidence.map((item) => ({
       id: item.id,
       title: item.title,

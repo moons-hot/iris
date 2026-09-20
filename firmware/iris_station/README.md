@@ -11,6 +11,6 @@
 
 Libs: [arduino-audio-driver](https://github.com/pschatzmann/arduino-audio-driver), [arduino-audio-tools](https://github.com/pschatzmann/arduino-audio-tools)
 
-Audio: mono PCM **16 kHz** / 16-bit, codec volume **8**, play gain **35%**. RX buffer 32KB; paced PCM writes from the browser.
+Audio: mono PCM **16 kHz** / 16-bit (ES7210 needs 16k MCLK coeffs), codec volume **10**, play gain **38%**, mic input volume **85**. Boot runs an I2C scan and tries ES7210 at 0x40–0x43 before ES8311-only.
 
 Cmds: `ping` `tone` `start` `stop` `play` — see Serial Monitor for `ready` / `audio_ok`.

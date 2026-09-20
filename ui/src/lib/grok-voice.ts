@@ -1,3 +1,5 @@
+import { extractPcm16, pcm16ToWavBytes, preparePcmForStt } from "@/lib/usb-voice";
+
 export const GROK_VOICE_MODEL = "grok-voice-transcribe-2.0";
 export const GROK_VOICE_REALTIME_MODEL = "grok-voice-latest";
 export const GROK_VOICE_ID = "ara";
@@ -11,6 +13,7 @@ export type GrokVoiceResult = {
   model?: string;
   demoFallback?: boolean;
   error?: string;
+  duration?: number;
 };
 
 export const KEY_TERMS = [
@@ -38,13 +41,13 @@ You are Iris, a calm onboard health investigation assistant for long-duration sp
 Help the astronaut describe how they feel, compare that report to live telemetry, and name the next evidence or action that would reduce uncertainty. You investigate possible concerns. You do not diagnose.
 
 ## Conversation Flow
-Listen to the astronaut's first report, including the vocal cues in the crew memeber's communication. Repeat the key symptoms in plain language. Compare pulse, blood pressure, temperature, cabin air, and space readings to personal baseline when those values are given. Offer one possible concern to investigate and one immediate next step. Ask a single clarifying question if the report is incomplete.
+Listen to the astronaut's first report, including the vocal cues in the crew member's communication. Repeat the key symptoms in plain language. Compare pulse, blood pressure, temperature, cabin air, and space readings to personal baseline when those values are given. Offer possible concerns to investigate and concrete next steps. Ask a clarifying question if the report is incomplete.
 
 ## Guardrails & Escalation
 NEVER diagnose a disease or say that one factor caused a condition. Use uncertainty language: possible, consistent with, warrants checking. Stay within onboard health investigation. For anything outside that scope, say you do not know. If the astronaut reports collapse, unresponsiveness, severe chest pain, or an uncontrolled bleed, tell them to notify the crew medical lead immediately and move to the designated safe protocol.
 
 ## Voice & Communication Style
-Spoken word only: no markdown, no bullet lists, no emojis. One or two short sentences per turn unless they ask for more. Respond only in English. Vary phrasing. If the audio is unclear, ask a short clarification instead of guessing.
+Spoken word only: no markdown, no bullet lists, no emojis. Give a full spoken briefing: what you heard, how it compares to personal baseline, possible concerns to investigate, and the next actions. Several sentences are fine. Do not cut the answer short. Respond only in English. Vary phrasing. If the audio is unclear, ask a short clarification instead of guessing.
 
 ## CRITICAL INSTRUCTIONS
 ALWAYS treat this as an investigation, NEVER a diagnosis.
@@ -90,6 +93,94 @@ export function grokVoiceSession(overrides?: {
   };
 }
 
+/** Rough peak/RMS for WAV/PCM uploads — helps spot silent ESP captures. */
+export async function audioLoudness(file: File): Promise<{
+  bytes: number;
+  peak: number;
+  rms: number;
+}> {
+  const bytes = file.size;
+  const buf = new Uint8Array(await file.arrayBuffer());
+  const { pcm } = extractPcm16(buf);
+  if (pcm.byteLength < 4) {
+    return { bytes, peak: 0, rms: 0 };
+  }
+  const view = new DataView(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+  const samples = Math.floor(pcm.byteLength / 2);
+  let peak = 0;
+  let sumSq = 0;
+  const step = Math.max(1, Math.floor(samples / 8000));
+  let counted = 0;
+  for (let i = 0; i < samples; i += step) {
+    const s = Math.abs(view.getInt16(i * 2, true));
+    if (s > peak) peak = s;
+    sumSq += s * s;
+    counted += 1;
+  }
+  const rms = counted ? Math.sqrt(sumSq / counted) : 0;
+  return { bytes, peak, rms };
+}
+
+async function postStt(
+  key: string,
+  form: FormData,
+): Promise<
+  | {
+      ok: true;
+      result: {
+        text?: string;
+        duration?: number;
+        words?: { text?: string }[];
+      };
+    }
+  | { ok: false; status: number; detail: string }
+> {
+  const response = await fetch("https://api.x.ai/v1/stt", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}` },
+    body: form,
+  });
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      detail: await response.text(),
+    };
+  }
+  return {
+    ok: true,
+    result: (await response.json()) as {
+      text?: string;
+      duration?: number;
+      words?: { text?: string }[];
+    },
+  };
+}
+
+function buildSttForm(file: File, extras?: Record<string, string>): FormData {
+  const form = new FormData();
+  form.append("language", "en");
+  form.append("format", "true");
+  // REST default is 0.5 — ESP/I2S captures often fail that gate with empty text.
+  form.append("vad_threshold", "0");
+  for (const term of KEY_TERMS) form.append("keyterm", term);
+  if (extras) {
+    for (const [k, v] of Object.entries(extras)) form.append(k, v);
+  }
+  // file MUST be last
+  form.append("file", file);
+  return form;
+}
+
+function transcriptFrom(result: {
+  text?: string;
+  words?: { text?: string }[];
+}): string {
+  const fromWords =
+    result.words?.map((w) => w.text?.trim()).filter(Boolean).join(" ") ?? "";
+  return (result.text?.trim() || fromWords).trim();
+}
+
 export async function transcribeWithGrokVoice(
   audio: File,
 ): Promise<GrokVoiceResult> {
@@ -103,37 +194,103 @@ export async function transcribeWithGrokVoice(
     };
   }
 
-  const form = new FormData();
-  form.set("model", GROK_VOICE_MODEL);
-  form.set("format", "true");
-  form.set("language", "en");
-  for (const term of KEY_TERMS) form.append("keyterm", term);
-  form.set("file", audio, audio.name || "astronaut-report.wav");
-
-  const response = await fetch("https://api.x.ai/v1/stt", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}` },
-    body: form,
+  const raw = new Uint8Array(await audio.arrayBuffer());
+  const extracted = extractPcm16(raw, 16000);
+  const prepared = preparePcmForStt(extracted.pcm, extracted.sampleRate, 16000);
+  const { pcm, sampleRate } = prepared;
+  const wavBytes = pcm16ToWavBytes(pcm, sampleRate);
+  const loudness = await audioLoudness(
+    new File([wavBytes], "level.wav", { type: "audio/wav" }),
+  );
+  console.log("[iris voice / audio level]", {
+    name: audio.name,
+    type: audio.type,
+    sourceRate: extracted.sampleRate,
+    sampleRate,
+    pcmBytes: pcm.byteLength,
+    wavBytes: wavBytes.byteLength,
+    head: Array.from(wavBytes.slice(0, 4))
+      .map((b) => String.fromCharCode(b))
+      .join(""),
+    ...loudness,
   });
-  if (!response.ok) {
-    const detail = await response.text();
-    console.error("[iris voice / stt failed]", response.status, detail);
+  if (loudness.peak < 200) {
+    console.warn(
+      "[iris voice / audio nearly silent — check ESP mic channel/gain]",
+      loudness,
+    );
+  }
+
+  // Always send a rewritten canonical WAV — ESP serial WAVs often sniff as format="".
+  const wavFile = new File([wavBytes], "astronaut-report.wav", {
+    type: "audio/wav",
+  });
+  let posted = await postStt(key, buildSttForm(wavFile));
+
+  // Fallback: raw PCM with explicit format (xAI requires audio_format + sample_rate).
+  if (!posted.ok && posted.status === 400) {
+    console.warn(
+      "[iris voice / wav stt failed, retrying raw pcm]",
+      posted.detail,
+    );
+    const pcmFile = new File([pcm], "astronaut-report.pcm", {
+      type: "application/octet-stream",
+    });
+    posted = await postStt(
+      key,
+      buildSttForm(pcmFile, {
+        audio_format: "pcm",
+        sample_rate: String(sampleRate),
+      }),
+    );
+  }
+
+  if (!posted.ok) {
+    console.error("[iris voice / stt failed]", posted.status, posted.detail);
     return {
       transcript: "",
       source: "onboard-demo",
       demoFallback: true,
-      error: `Grok Voice transcription failed (${response.status})`,
+      error: `Grok Voice transcription failed (${posted.status}): ${posted.detail.slice(0, 200)}`,
     };
   }
 
-  const result = (await response.json()) as { text?: string };
-  const transcript = result.text?.trim() ?? "";
+  let transcript = transcriptFrom(posted.result);
   if (!transcript) {
-    console.warn("[iris voice / stt empty body]", result);
+    console.warn("[iris voice / stt empty body, retrying original wav]", {
+      duration: posted.result.duration,
+      loudness,
+      result: posted.result,
+    });
+    const originalWav = pcm16ToWavBytes(extracted.pcm, extracted.sampleRate);
+    const retry = await postStt(
+      key,
+      buildSttForm(
+        new File([originalWav], "astronaut-original.wav", { type: "audio/wav" }),
+      ),
+    );
+    if (retry.ok) {
+      transcript = transcriptFrom(retry.result);
+      if (transcript) posted = retry;
+    }
+  }
+  if (!transcript) {
+    console.warn("[iris voice / stt empty body]", {
+      duration: posted.ok ? posted.result.duration : undefined,
+      loudness,
+      result: posted.ok ? posted.result : posted.detail,
+    });
   }
   return {
     transcript,
-    source: "grok-voice",
+    source: transcript ? "grok-voice" : "onboard-demo",
     model: GROK_VOICE_MODEL,
+    duration: posted.ok ? posted.result.duration : undefined,
+    demoFallback: !transcript,
+    error: transcript
+      ? undefined
+      : loudness.peak < 200
+        ? "Mic audio looks silent — reseat codec / speak closer"
+        : "STT returned no speech",
   };
 }

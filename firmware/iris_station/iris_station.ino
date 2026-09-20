@@ -1,5 +1,6 @@
 #include "AudioTools.h"
 #include "AudioTools/AudioLibs/I2SCodecStream.h"
+#include <Wire.h>
 #include <esp_heap_caps.h>
 #include <math.h>
 #include <stdarg.h>
@@ -18,18 +19,20 @@ static constexpr int kPinScl = 2;
 static constexpr int kPinPa = 48;
 static constexpr int kI2cHz = 100000;
 
+// 16 kHz: ES7210 coeff table has 4.096 MHz MCLK for 16k; 24k*256=6.144 MHz is missing.
 static constexpr uint32_t kBaud = 460800;
 static constexpr int kRate = 16000;
 static constexpr int kChannels = 2;
 static constexpr int kBits = 16;
-static constexpr uint32_t kMaxSec = 12;
+static constexpr uint32_t kMaxSec = 45;
 static constexpr size_t kMaxPcm = (size_t)kRate * (kBits / 8) * 1 * kMaxSec;
 static constexpr size_t kChunk = 1024;
-static constexpr size_t kPlayFrames = 256;  // stereo frames per I2S write
+static constexpr size_t kPlayFrames = 256;
 static constexpr size_t kRxBuf = 32768;
-static constexpr int kVolume = 8;
-// Extra soft attenuation on host PCM (0–100). Keeps TTS from clipping the PA.
-static constexpr int kPlayGainPct = 35;
+static constexpr int kVolume = 10;
+static constexpr int kPlayGainPct = 38;
+static constexpr int kMicGainX10 = 18;
+static constexpr int kInputVolume = 85;
 
 enum class State { Idle, Recording, ReceivingPlay };
 
@@ -37,6 +40,9 @@ DriverDeviceInfo *pins = nullptr;
 AudioBoard *board = nullptr;
 I2SCodecStream *codec = nullptr;
 AudioInfo info(kRate, kChannels, kBits);
+// Heap-owned so Combined+ES7210 address variants outlive AudioBoard.
+AudioDriverES7210Class *ownedAdc = nullptr;
+AudioDriverCombined *ownedCombo = nullptr;
 
 State state = State::Idle;
 bool audioOk = false;
@@ -48,7 +54,6 @@ size_t playNeed = 0;
 size_t playGot = 0;
 uint32_t lastHbMs = 0;
 uint32_t playLastByteMs = 0;
-// Which UART/CDC last got a host command — binary replies go only there.
 Stream *activeHost = &Serial0;
 
 static void logLine(const char *s) {
@@ -73,6 +78,19 @@ static void emitError(const char *msg) {
   logf("{\"evt\":\"error\",\"msg\":\"%s\"}", msg);
 }
 
+static void abortPlay(const char *reason) {
+  if (state != State::ReceivingPlay) return;
+  logf("{\"evt\":\"error\",\"msg\":\"%s\"}", reason);
+  if (playBuf) {
+    heap_caps_free(playBuf);
+    playBuf = nullptr;
+  }
+  playNeed = playGot = 0;
+  board->setPAPower(false);
+  state = State::Idle;
+  emit("{\"evt\":\"idle\"}");
+}
+
 static void announce() {
   if (audioOk) {
     emit("{\"evt\":\"ready\",\"audio\":true,\"rate\":16000,\"channels\":1,\"bits\":16}");
@@ -91,6 +109,21 @@ static void serialBegin() {
   while (Serial.available()) Serial.read();
   while (Serial0.available()) Serial0.read();
   logLine("iris_station");
+}
+
+static void i2cScan() {
+  Wire.begin(kPinSda, kPinScl, (uint32_t)kI2cHz);
+  delay(20);
+  int found = 0;
+  for (uint8_t addr = 1; addr < 127; addr++) {
+    Wire.beginTransmission(addr);
+    if (Wire.endTransmission() == 0) {
+      found++;
+      logf("{\"evt\":\"i2c\",\"addr\":\"0x%02X\"}", addr);
+    }
+  }
+  logf("{\"evt\":\"i2c_scan\",\"found\":%d}", found);
+  Wire.end();
 }
 
 static bool openCodec(RxTxMode mode) {
@@ -116,11 +149,33 @@ static void teardownAudio() {
     delete pins;
     pins = nullptr;
   }
+  if (ownedCombo) {
+    delete ownedCombo;
+    ownedCombo = nullptr;
+  }
+  if (ownedAdc) {
+    delete ownedAdc;
+    ownedAdc = nullptr;
+  }
 }
 
 static bool tryDriver(AudioDriver &driver, const char *name) {
   logf("{\"evt\":\"audio_try\",\"driver\":\"%s\"}", name);
-  teardownAudio();
+  // Keep owned ADC/combo across successful begin; clear only on failure paths
+  // that call teardown from outside. Here we only rebuild pins/board/codec.
+  if (codec) {
+    codec->end();
+    delete codec;
+    codec = nullptr;
+  }
+  if (board) {
+    delete board;
+    board = nullptr;
+  }
+  if (pins) {
+    delete pins;
+    pins = nullptr;
+  }
 
   pins = new DriverDeviceInfo();
   pins->addI2C(PinFunction::CODEC, kPinScl, kPinSda, -1, kI2cHz);
@@ -142,6 +197,7 @@ static bool tryDriver(AudioDriver &driver, const char *name) {
     return false;
   }
   board->setVolume(kVolume);
+  board->setInputVolume(kInputVolume);
   board->setPAPower(false);
 
   codec = new I2SCodecStream(*board);
@@ -154,9 +210,40 @@ static bool tryDriver(AudioDriver &driver, const char *name) {
   return true;
 }
 
+static bool tryEs7210At(uint8_t addr7) {
+  if (ownedCombo) {
+    delete ownedCombo;
+    ownedCombo = nullptr;
+  }
+  if (ownedAdc) {
+    delete ownedAdc;
+    ownedAdc = nullptr;
+  }
+  ownedAdc = new AudioDriverES7210Class(addr7);
+  ownedCombo = new AudioDriverCombined(AudioDriverES8311, *ownedAdc);
+  char name[40];
+  snprintf(name, sizeof(name), "ES8311_ES7210_0x%02X", addr7);
+  if (tryDriver(*ownedCombo, name)) return true;
+  delete ownedCombo;
+  ownedCombo = nullptr;
+  delete ownedAdc;
+  ownedAdc = nullptr;
+  return false;
+}
+
 static bool initAudio() {
-  if (tryDriver(AudioDriverES8311, "ES8311")) return true;
-  if (tryDriver(AudioDriverES8311_ES7210, "ES8311_ES7210")) return true;
+  i2cScan();
+  // Prefer real mic ADC. This Lafvin module straps ES7210 at 0x41 (not 0x40).
+  const uint8_t addrs[] = {0x41, 0x40, 0x42, 0x43};
+  for (uint8_t a : addrs) {
+    if (tryEs7210At(a)) return true;
+  }
+  // Speaker-only path: ES8311 also has an ADC — raise mic gain and hope DIN is live.
+  if (tryDriver(AudioDriverES8311, "ES8311")) {
+    board->setInputVolume(kInputVolume);
+    emit("{\"evt\":\"warn\",\"msg\":\"no_es7210_using_es8311_adc\"}");
+    return true;
+  }
   return false;
 }
 
@@ -167,6 +254,7 @@ static void playTone() {
   }
   emit("{\"evt\":\"tone\"}");
   board->setPAPower(true);
+  delay(40);
 
   const float freq = 440.0f;
   const size_t samples = (size_t)(kRate * 0.2f);
@@ -272,9 +360,16 @@ static void pumpRec() {
   const size_t count = n / 4;
   for (size_t i = 0; i < count; i++) {
     if (pcmFilled + 2 > kMaxPcm) break;
-    const int16_t m = frames[i * 2];
-    pcmBuf[pcmFilled++] = (uint8_t)(m & 0xff);
-    pcmBuf[pcmFilled++] = (uint8_t)((m >> 8) & 0xff);
+    // Average L/R. Per-sample "louder channel" picks noise spikes and kills STT.
+    const int16_t l = frames[i * 2];
+    const int16_t r = frames[i * 2 + 1];
+    int32_t m = ((int32_t)l + (int32_t)r) / 2;
+    m = (m * kMicGainX10) / 10;
+    if (m > 32767) m = 32767;
+    if (m < -32768) m = -32768;
+    const int16_t sample = (int16_t)m;
+    pcmBuf[pcmFilled++] = (uint8_t)(sample & 0xff);
+    pcmBuf[pcmFilled++] = (uint8_t)((sample >> 8) & 0xff);
   }
 }
 
@@ -310,20 +405,16 @@ static void pumpPlay() {
 
   if (playGot < playNeed) {
     // Host stopped sending — surface instead of hanging forever.
-    if (millis() - playLastByteMs > 8000) {
-      logf("{\"evt\":\"error\",\"msg\":\"play_stall got=%lu need=%lu\"}",
-           (unsigned long)playGot, (unsigned long)playNeed);
-      heap_caps_free(playBuf);
-      playBuf = nullptr;
-      playNeed = playGot = 0;
-      state = State::Idle;
-      emit("{\"evt\":\"idle\"}");
+    // Keep this short so a failed TTS play cannot block the next Connect/ping.
+    if (millis() - playLastByteMs > 2500) {
+      abortPlay("play_stall");
     }
     return;
   }
 
   emit("{\"evt\":\"playing\"}");
   board->setPAPower(true);
+  delay(40); // amp enable settle — otherwise first speech frames are silent
 
   const size_t samples = playNeed / 2;
   uint8_t stereo[kPlayFrames * 4];
@@ -356,14 +447,18 @@ static void pumpPlay() {
 
 static void handleLine(const String &line) {
   if (line.indexOf("\"cmd\":\"ping\"") >= 0 || line.indexOf("\"cmd\":\"hello\"") >= 0) {
+    // Ping must always win — a wedged play left the board deaf to Connect.
+    abortPlay("play_aborted_by_ping");
     announce();
     return;
   }
   if (line.indexOf("\"cmd\":\"tone\"") >= 0) {
+    abortPlay("play_aborted_by_tone");
     playTone();
     return;
   }
   if (line.indexOf("\"cmd\":\"start\"") >= 0) {
+    abortPlay("play_aborted_by_start");
     startRec();
     return;
   }

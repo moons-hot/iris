@@ -6,8 +6,8 @@
 /** Match firmware kBaud. 460800 is a safer CP210x rate than 921600. */
 export const IRIS_SERIAL_BAUD = 460800;
 export const IRIS_PCM_RATE = 16000;
-/** Soften Grok TTS before the ESP amp (scratchy = often too hot). */
-export const IRIS_PCM_GAIN = 0.35;
+/** Cabin level — keep well under 1 so TTS does not shout through the amp. */
+export const IRIS_PCM_GAIN = 0.38;
 
 export type IrisSerialEvent =
   | { evt: "booting" }
@@ -46,32 +46,74 @@ export class IrisEspLink {
     if (!("serial" in navigator)) {
       throw new Error("Web Serial is not available in this browser.");
     }
-    this.port = await navigator.serial.requestPort();
-    await this.port.open({ baudRate: IRIS_SERIAL_BAUD });
-
-    // ESP32-S3 USB CDC often resets when the port opens ("Break received").
-    // Wait, then re-bind streams and ping for status.
-    await new Promise((r) => setTimeout(r, 1800));
-    await this.bindStreams();
-
     try {
-      await this.sendLine({ cmd: "ping" });
-    } catch {
-      // Port may still be settling after reset — retry once.
-      await new Promise((r) => setTimeout(r, 1200));
-      await this.bindStreams();
-      await this.sendLine({ cmd: "ping" });
-    }
-
-    const ready = await this.waitForEvent("ready", 15_000);
-    this.audioReady = ready.evt === "ready" ? ready.audio !== false : false;
-    if (this.audioReady) {
-      // idle may already have arrived with the announce burst
-      try {
-        await this.waitForEvent("idle", 3_000);
-      } catch {
-        // ready-only is enough to proceed
+      // Drop zombie handles from a previous failed Connect/play so open() works.
+      for (const port of await navigator.serial.getPorts()) {
+        try {
+          await port.close();
+        } catch {
+          /* ignore */
+        }
       }
+
+      this.port = await navigator.serial.requestPort();
+      await this.port.open({
+        baudRate: IRIS_SERIAL_BAUD,
+        bufferSize: 16 * 1024,
+      });
+
+      // ESP32-S3 USB CDC often resets on open. Wait out boot + audio init.
+      await new Promise((r) => setTimeout(r, 2500));
+      if (!this.port.readable || !this.port.writable) {
+        try {
+          await this.port.close();
+        } catch {
+          /* ignore */
+        }
+        await new Promise((r) => setTimeout(r, 400));
+        await this.port.open({
+          baudRate: IRIS_SERIAL_BAUD,
+          bufferSize: 16 * 1024,
+        });
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+
+      await this.bindStreams();
+
+      // Heartbeat also emits ready — ping a few times until we catch one.
+      let ready: IrisSerialEvent | null = null;
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 5 && !ready; attempt += 1) {
+        try {
+          await this.sendLine({ cmd: "ping" });
+          ready = await this.waitForEvent("ready", 3000);
+        } catch (error) {
+          lastError = error;
+          try {
+            await this.bindStreams();
+          } catch {
+            /* ignore */
+          }
+          await new Promise((r) => setTimeout(r, 400));
+        }
+      }
+      if (!ready) {
+        throw lastError instanceof Error
+          ? lastError
+          : new Error('Timed out waiting for ESP32 "ready"');
+      }
+
+      this.audioReady = ready.evt === "ready" ? ready.audio !== false : false;
+      if (this.audioReady) {
+        try {
+          await this.waitForEvent("idle", 3_000);
+        } catch {
+          // ready-only is enough to proceed
+        }
+      }
+    } catch (error) {
+      await this.disconnect();
+      throw error;
     }
   }
 
@@ -87,7 +129,9 @@ export class IrisEspLink {
       /* ignore */
     }
     if (!this.port?.readable || !this.port.writable) {
-      throw new Error("Serial port lost after ESP32 reset — press RESET and Connect again.");
+      throw new Error(
+        "Serial port lost after ESP32 reset — press RESET and Connect again.",
+      );
     }
     this.reader = this.port.readable.getReader();
     this.writer = this.port.writable.getWriter();
@@ -95,18 +139,47 @@ export class IrisEspLink {
   }
 
   async disconnect(): Promise<void> {
-    await this.reader?.cancel();
-    await this.writer?.close();
-    await this.port?.close();
+    try {
+      await this.reader?.cancel();
+    } catch {
+      /* ignore */
+    }
+    try {
+      this.reader?.releaseLock();
+    } catch {
+      /* ignore */
+    }
+    try {
+      await this.writer?.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      this.writer?.releaseLock();
+    } catch {
+      /* ignore */
+    }
+    try {
+      await this.port?.close();
+    } catch {
+      /* ignore */
+    }
     this.reader = null;
     this.writer = null;
     this.port = null;
+    this.audioReady = false;
     this.lineBuffer = "";
   }
 
   async startRecording(): Promise<void> {
     await this.sendLine({ cmd: "start" });
     await this.waitForEvent("recording");
+  }
+
+  /** Soft recover after a failed play without tearing down Web Serial. */
+  async ping(): Promise<void> {
+    await this.sendLine({ cmd: "ping" });
+    await this.waitForEvent("ready", 5_000);
   }
 
   async stopRecording(): Promise<Blob> {
@@ -126,22 +199,33 @@ export class IrisEspLink {
     console.log(
       `[iris esp] play ${pcm.byteLength} bytes @ ${rate} Hz (~${seconds.toFixed(1)}s)`,
     );
-    await this.sendLine({
-      cmd: "play",
-      rate,
-      channels: 1,
-      bits: 16,
-      length: pcm.byteLength,
-    });
-    // Pace the write so ESP RX (even with a big buffer) does not drop bytes.
-    await this.writeBytes(new Uint8Array(pcm), { pace: true });
-    const transferMs = Math.max(60_000, Math.round(seconds * 3000) + 30_000);
-    await this.waitForEvent("playing", transferMs);
-    await this.waitForEvent("done", Math.round(seconds * 1000) + 15_000);
-    await this.waitForEvent("idle", 10_000);
-    console.log(
-      `[iris esp] play finished in ${Math.round(performance.now() - started)} ms`,
-    );
+    try {
+      await this.sendLine({
+        cmd: "play",
+        rate,
+        channels: 1,
+        bits: 16,
+        length: pcm.byteLength,
+      });
+      // Pace the write so ESP RX (even with a big buffer) does not drop bytes.
+      await this.writeBytes(new Uint8Array(pcm), { pace: true });
+      const transferMs = Math.max(60_000, Math.round(seconds * 3000) + 30_000);
+      await this.waitForEvent("playing", transferMs);
+      await this.waitForEvent("done", Math.round(seconds * 1000) + 15_000);
+      await this.waitForEvent("idle", 10_000);
+      console.log(
+        `[iris esp] play finished in ${Math.round(performance.now() - started)} ms`,
+      );
+    } catch (error) {
+      // Drop a wedged play/receive state so the next Connect/Record can succeed.
+      try {
+        await this.sendLine({ cmd: "ping" });
+        await this.waitForEvent("ready", 3_000);
+      } catch {
+        /* ignore — caller may disconnect */
+      }
+      throw error;
+    }
   }
 
   private async sendLine(payload: Record<string, unknown>): Promise<void> {
@@ -156,11 +240,11 @@ export class IrisEspLink {
   ): Promise<void> {
     if (!this.writer) throw new Error("Serial not connected");
     // Small paced chunks avoid overflowing the ESP CDC/UART RX buffer.
-    const chunkSize = options?.pace ? 2048 : 8192;
+    const chunkSize = options?.pace ? 3072 : 8192;
     for (let offset = 0; offset < data.length; offset += chunkSize) {
       await this.writer.write(data.subarray(offset, offset + chunkSize));
       if (options?.pace) {
-        await new Promise((r) => setTimeout(r, 4));
+        await new Promise((r) => setTimeout(r, 2));
       }
     }
   }
@@ -270,12 +354,18 @@ export class IrisEspLink {
   }
 }
 
-/** Decode speak API MPEG audio to mono 16-bit PCM at targetRate for ESP playback. */
+/** Decode speak API audio (pcm / wav / mp3) to mono 16-bit PCM for ESP playback. */
 export async function mp3BlobToMonoPcm(
   blob: Blob,
   targetRate = IRIS_PCM_RATE,
   gain = IRIS_PCM_GAIN,
 ): Promise<ArrayBuffer> {
+  const type = (blob.type || "").toLowerCase();
+  // Native 16 kHz PCM from Grok — skip decodeAudioData (faster, less scratchy).
+  if (type.includes("pcm") || type === "application/octet-stream") {
+    return applyPcm16Gain(new Uint8Array(await blob.arrayBuffer()), gain).buffer;
+  }
+
   const ctx = new AudioContext();
   try {
     const buffer = await ctx.decodeAudioData(await blob.arrayBuffer());
@@ -285,6 +375,22 @@ export async function mp3BlobToMonoPcm(
   } finally {
     await ctx.close();
   }
+}
+
+/** Scale raw little-endian PCM16 in place-friendly copy. */
+export function applyPcm16Gain(pcm: Uint8Array, gain = IRIS_PCM_GAIN): Uint8Array {
+  const samples = Math.floor(pcm.byteLength / 2);
+  const out = new Uint8Array(samples * 2);
+  const src = new DataView(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+  const dst = new DataView(out.buffer);
+  for (let i = 0; i < samples; i += 1) {
+    let sample = (src.getInt16(i * 2, true) / 32768) * gain;
+    // Mild soft-clip — reduces amp hash without crushing the voice.
+    sample = Math.tanh(sample * 1.15) / Math.tanh(1.15);
+    sample = Math.max(-1, Math.min(1, sample));
+    dst.setInt16(i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+  }
+  return out;
 }
 
 function mixToMono(buffer: AudioBuffer): Float32Array {
@@ -323,9 +429,8 @@ function floatToInt16Pcm(input: Float32Array, gain = 1): ArrayBuffer {
   const out = new ArrayBuffer(input.length * 2);
   const view = new DataView(out);
   for (let i = 0; i < input.length; i++) {
-    // Soft-clip after gain so hot TTS peaks don't hash through the amp.
     let sample = (input[i] ?? 0) * gain;
-    sample = Math.tanh(sample * 1.2) / Math.tanh(1.2);
+    sample = Math.tanh(sample * 1.15) / Math.tanh(1.15);
     sample = Math.max(-1, Math.min(1, sample));
     view.setInt16(i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
   }
@@ -339,6 +444,7 @@ declare global {
 
   interface Serial {
     requestPort(options?: SerialPortRequestOptions): Promise<SerialPort>;
+    getPorts(): Promise<SerialPort[]>;
   }
 
   interface SerialPortRequestOptions {

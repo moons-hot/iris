@@ -26,6 +26,9 @@ next-env.d.ts
 .DS_Store
 *.pem
 
+# local voice debug captures
+/tmp/
+
 # debug
 npm-debug.log*
 yarn-debug.log*

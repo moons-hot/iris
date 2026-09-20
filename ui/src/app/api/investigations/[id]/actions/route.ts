@@ -3,6 +3,7 @@ import {
   investigationReply,
   type Snapshot,
 } from "@/lib/iris";
+import { investigationToSpeak } from "@/lib/speak-text";
 import { parseSentAt, recordCommsLog } from "@/lib/tiger";
 
 export const runtime = "nodejs";
@@ -11,12 +12,15 @@ const system = `You are Iris, an onboard health investigation assistant for long
 You receive a voice report plus astronaut telemetry, spacecraft cabin readings, and space-environment readings.
 Do not diagnose or state that one factor caused a condition. Use uncertainty language and compare against the astronaut's personal baseline.
 Follow observe -> compare -> identify missing evidence -> collect -> reevaluate.
-Return concise markdown with these headings:
+Return markdown with these headings:
 - Observed
 - Possible concerns to investigate
 - Immediate actions
 - What would reduce uncertainty next
-Preserve citation IDs already in the context.
+- Speak aloud
+Keep Observed through next-steps concise for the screen (short bullets, not a full vitals dump).
+The final "## Speak aloud" section is what the crew hears over the cabin speaker: one short sentence, optionally a second, under 140 characters total. Calm and plain. Acknowledge the report and one next action. No markdown, no bullet lists, no citation IDs, no vitals dump.
+Preserve citation IDs already in the context in the non-speak sections only.
 Use the NASA Human Research Roadmap Risk 95 reference when relevant: https://humanresearchroadmap.nasa.gov/Risks/risk.aspx?i=95.`;
 
 function telemetryBlock(
@@ -69,7 +73,12 @@ export async function POST(request: Request) {
   const packetText = telemetryBlock(body.telemetry, fallback.telemetry);
 
   if (!process.env.XAI_API_KEY) {
-    return Response.json({ ...fallback, source: "onboard-demo", log });
+    return Response.json({
+      ...fallback,
+      speak: investigationToSpeak(fallback.text),
+      source: "onboard-demo",
+      log,
+    });
   }
 
   try {
@@ -104,10 +113,13 @@ Preserve citation IDs already in the context. Keep possible concerns as investig
     };
     const text = result.choices?.[0]?.message?.content;
     if (!text) throw new Error("Empty Grok investigation reply");
-    return Response.json({ ...fallback, text, source: "grok", log });
+    const speak = investigationToSpeak(text);
+    console.log("[iris investigate / speak]", speak.slice(0, 240));
+    return Response.json({ ...fallback, text, speak, source: "grok", log });
   } catch {
     return Response.json({
       ...fallback,
+      speak: investigationToSpeak(fallback.text),
       source: "onboard-demo",
       modelWarning:
         "Grok unavailable; used seeded onboard investigation context.",

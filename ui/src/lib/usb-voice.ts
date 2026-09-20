@@ -147,8 +147,13 @@ export function looksLikeText(bytes: Uint8Array): boolean {
 }
 
 export function pcm16ToWav(pcm: Uint8Array, sampleRate = 16000): Blob {
-  const header = new ArrayBuffer(44);
-  const view = new DataView(header);
+  return new Blob([pcm16ToWavBytes(pcm, sampleRate)], { type: "audio/wav" });
+}
+
+/** Canonical 44-byte PCM WAV — use this before xAI STT (ESP headers can sniff-fail). */
+export function pcm16ToWavBytes(pcm: Uint8Array, sampleRate = 16000): Uint8Array {
+  const out = new Uint8Array(44 + pcm.byteLength);
+  const view = new DataView(out.buffer);
   const write = (offset: number, text: string) => {
     for (let i = 0; i < text.length; i += 1) {
       view.setUint8(offset + i, text.charCodeAt(i));
@@ -167,5 +172,110 @@ export function pcm16ToWav(pcm: Uint8Array, sampleRate = 16000): Blob {
   view.setUint16(34, 16, true);
   write(36, "data");
   view.setUint32(40, pcm.byteLength, true);
-  return new Blob([header, pcm], { type: "audio/wav" });
+  out.set(pcm, 44);
+  return out;
+}
+
+/** Pull PCM + rate from a WAV (or treat whole buffer as PCM). */
+export function extractPcm16(
+  bytes: Uint8Array,
+  fallbackRate = 24000,
+): { pcm: Uint8Array; sampleRate: number } {
+  if (
+    bytes.byteLength >= 44 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46
+  ) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let sampleRate = fallbackRate;
+    let pcm: Uint8Array | null = null;
+    let offset = 12; // after "WAVE"
+    while (offset + 8 <= bytes.byteLength) {
+      const id = String.fromCharCode(
+        bytes[offset] ?? 0,
+        bytes[offset + 1] ?? 0,
+        bytes[offset + 2] ?? 0,
+        bytes[offset + 3] ?? 0,
+      );
+      const size = view.getUint32(offset + 4, true);
+      const dataStart = offset + 8;
+      const dataEnd = Math.min(dataStart + size, bytes.byteLength);
+      if (id === "fmt " && size >= 16) {
+        sampleRate = view.getUint32(dataStart + 4, true) || fallbackRate;
+      } else if (id === "data") {
+        pcm = bytes.subarray(dataStart, dataEnd);
+        break;
+      }
+      offset = dataStart + size + (size & 1);
+    }
+    if (!pcm) pcm = bytes.subarray(44);
+    const even = pcm.byteLength & 1 ? pcm.subarray(0, pcm.byteLength - 1) : pcm;
+    return { pcm: even, sampleRate };
+  }
+  const even =
+    bytes.byteLength & 1 ? bytes.subarray(0, bytes.byteLength - 1) : bytes;
+  return { pcm: even, sampleRate: fallbackRate };
+}
+
+/** Linear resample mono PCM16. */
+export function resamplePcm16(
+  pcm: Uint8Array,
+  fromRate: number,
+  toRate: number,
+): Uint8Array {
+  if (fromRate === toRate || pcm.byteLength < 4) return pcm;
+  const inSamples = Math.floor(pcm.byteLength / 2);
+  const outSamples = Math.max(1, Math.round((inSamples * toRate) / fromRate));
+  const out = new Uint8Array(outSamples * 2);
+  const src = new DataView(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+  const dst = new DataView(out.buffer);
+  for (let i = 0; i < outSamples; i += 1) {
+    const srcPos = (i * fromRate) / toRate;
+    const idx = Math.floor(srcPos);
+    const frac = srcPos - idx;
+    const a = src.getInt16(Math.min(idx, inSamples - 1) * 2, true);
+    const b = src.getInt16(Math.min(idx + 1, inSamples - 1) * 2, true);
+    dst.setInt16(i * 2, Math.round(a + (b - a) * frac), true);
+  }
+  return out;
+}
+
+/**
+ * Prepare ESP/browser PCM for Grok STT: remove DC, normalize, resample to 16 kHz.
+ * Empty STT with loud peak often means garbled/noisy 24 kHz captures.
+ */
+export function preparePcmForStt(
+  pcm: Uint8Array,
+  sampleRate: number,
+  targetRate = 16000,
+): { pcm: Uint8Array; sampleRate: number } {
+  const samples = Math.floor(pcm.byteLength / 2);
+  if (samples < 8) return { pcm, sampleRate };
+
+  const view = new DataView(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+  let sum = 0;
+  let peak = 1;
+  for (let i = 0; i < samples; i += 1) {
+    const s = view.getInt16(i * 2, true);
+    sum += s;
+    const a = Math.abs(s);
+    if (a > peak) peak = a;
+  }
+  const mean = sum / samples;
+  // Only boost quiet captures. Loud ESP noise already saturates STT's VAD.
+  const gain = peak < 8000 ? Math.min(4, (0.55 * 32767) / peak) : 1;
+
+  const cleaned = new Uint8Array(samples * 2);
+  const out = new DataView(cleaned.buffer);
+  for (let i = 0; i < samples; i += 1) {
+    let s = (view.getInt16(i * 2, true) - mean) * gain;
+    if (s > 32767) s = 32767;
+    if (s < -32768) s = -32768;
+    out.setInt16(i * 2, Math.round(s), true);
+  }
+
+  const resampled = resamplePcm16(cleaned, sampleRate, targetRate);
+  return { pcm: resampled, sampleRate: targetRate };
 }

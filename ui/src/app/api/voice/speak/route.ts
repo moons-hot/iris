@@ -12,6 +12,8 @@ export async function POST(request: Request) {
   }
 
   // https://docs.x.ai/docs/guides/voice — POST /v1/tts
+  // ara = warmer/calmer than eve; speed >1 shortens cabin play time;
+  // pcm @ 16 kHz matches the ESP path (no MP3 decode scratch).
   const response = await fetch("https://api.x.ai/v1/tts", {
     method: "POST",
     headers: {
@@ -20,8 +22,13 @@ export async function POST(request: Request) {
     },
     body: JSON.stringify({
       text: body.text,
-      voice_id: "eve",
+      voice_id: "ara",
       language: "en",
+      speed: 1.2,
+      output_format: {
+        codec: "pcm",
+        sample_rate: 16000,
+      },
     }),
   });
   if (!response.ok)
@@ -34,7 +41,7 @@ export async function POST(request: Request) {
     );
   return new Response(response.body, {
     headers: {
-      "Content-Type": response.headers.get("Content-Type") ?? "audio/mpeg",
+      "Content-Type": response.headers.get("Content-Type") ?? "audio/pcm",
     },
   });
 }

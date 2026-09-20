@@ -105,4 +105,25 @@ describe("USB voice source", () => {
     );
     expect(looksLikeText(new Uint8Array([0, 1, 2, 250, 251, 252]))).toBe(false);
   });
+
+  it("prepares PCM for STT at 16 kHz with normalized peaks", async () => {
+    const { preparePcmForStt, extractPcm16, pcm16ToWavBytes } = await import(
+      "./usb-voice"
+    );
+    const rate = 24000;
+    const samples = rate; // 1s
+    const pcm = new Uint8Array(samples * 2);
+    const view = new DataView(pcm.buffer);
+    for (let i = 0; i < samples; i += 1) {
+      // Quiet 440 Hz tone
+      const s = Math.round(Math.sin((2 * Math.PI * 440 * i) / rate) * 2000);
+      view.setInt16(i * 2, s, true);
+    }
+    const prepared = preparePcmForStt(pcm, rate, 16000);
+    expect(prepared.sampleRate).toBe(16000);
+    expect(prepared.pcm.byteLength).toBeGreaterThan(pcm.byteLength * 0.5);
+    const wav = pcm16ToWavBytes(prepared.pcm, prepared.sampleRate);
+    const again = extractPcm16(wav, 16000);
+    expect(again.sampleRate).toBe(16000);
+  });
 });
