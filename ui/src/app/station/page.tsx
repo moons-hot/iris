@@ -14,6 +14,8 @@ type Metric = {
   unit: string;
   baseline: number;
   direction: "stable" | "up" | "down";
+  history: number[];
+  historyText?: string[];
 };
 type Snapshot = {
   astronaut: { id: string; name: string; missionDay: number };
@@ -149,7 +151,7 @@ export default function StationPage() {
 
   useEffect(() => {
     void refresh();
-    const interval = window.setInterval(() => void refresh(), 5000);
+    const interval = window.setInterval(() => void refresh(), 1600);
     return () => window.clearInterval(interval);
   }, [refresh]);
 

@@ -8,6 +8,10 @@ export type Metric = {
   unit: string;
   baseline: number;
   direction: "stable" | "up" | "down";
+  /** Recent live-feed samples, oldest first. About 15 points. */
+  history: number[];
+  /** Optional formatted feed (used for blood pressure pairs). */
+  historyText?: string[];
 };
 
 export type Snapshot = {
@@ -146,134 +150,211 @@ const specs: Record<
     spe: 0.4,
   },
   mild: {
-    hr: 65,
-    sys: 111,
-    dia: 71,
-    temp: 36.8,
-    spo2: 97,
-    rr: 16,
-    co2: 0.68,
+    hr: 84,
+    sys: 134,
+    dia: 86,
+    temp: 37.6,
+    spo2: 94,
+    rr: 22,
+    co2: 0.78,
     radiation: 0.2,
-    oxygen: 20.9,
-    suit: 29.5,
-    pressure: 101.2,
+    oxygen: 20.8,
+    suit: 29.4,
+    pressure: 101.1,
     spe: 0.5,
   },
   dire: {
-    hr: 86,
-    sys: 92,
-    dia: 59,
-    temp: 37.3,
-    spo2: 91,
-    rr: 24,
-    co2: 0.7,
-    radiation: 1.46,
-    oxygen: 20.7,
+    hr: 118,
+    sys: 84,
+    dia: 51,
+    temp: 38.9,
+    spo2: 88,
+    rr: 28,
+    co2: 0.84,
+    radiation: 2.6,
+    oxygen: 20.3,
     suit: 24.1,
     pressure: 100.8,
     spe: 18.2,
   },
 };
 
-function jitter(value: number, magnitude: number) {
-  return Math.round((value + Math.sin(tick / 2) * magnitude) * 10) / 10;
+function roundTo(value: number, decimals: number) {
+  const factor = 10 ** decimals;
+  return Math.round(value * factor) / factor;
+}
+
+/**
+ * Sliding window of live telemetry. Each tick advances the window so the
+ * last sample is "now" and earlier points look like a noisy real-time feed.
+ */
+export function sampleSeries(
+  center: number,
+  magnitude: number,
+  decimals: number,
+  options: { drift?: number; count?: number; phase?: number } = {},
+): number[] {
+  const count = options.count ?? 15;
+  const drift = options.drift ?? 0;
+  const phaseOffset = options.phase ?? 0;
+  return Array.from({ length: count }, (_, i) => {
+    const t = tick + i + phaseOffset;
+    const wander =
+      Math.sin(t * 1.55) * magnitude +
+      Math.sin(t * 0.82 + 1.4) * magnitude * 0.55 +
+      Math.cos(t * 2.4 + 0.6) * magnitude * 0.35;
+    const stepDrift = drift * ((i - (count - 1)) / Math.max(count - 1, 1));
+    return roundTo(center + wander + stepDrift, decimals);
+  });
+}
+
+function directionFrom(
+  history: number[],
+  threshold: number,
+): Metric["direction"] {
+  if (history.length < 6) return "stable";
+  const early =
+    history.slice(0, 4).reduce((sum, value) => sum + value, 0) / 4;
+  const late =
+    history.slice(-4).reduce((sum, value) => sum + value, 0) / 4;
+  const delta = late - early;
+  if (delta > threshold) return "up";
+  if (delta < -threshold) return "down";
+  return "stable";
+}
+
+function metric(
+  label: string,
+  history: number[],
+  unit: string,
+  baseline: number,
+  threshold: number,
+  extras: Partial<Metric> = {},
+): Metric {
+  const value = history.at(-1);
+  if (value === undefined) {
+    throw new Error(`Empty telemetry history for ${label}`);
+  }
+  return {
+    label,
+    value,
+    unit,
+    baseline,
+    direction: extras.direction ?? directionFrom(history, threshold),
+    history,
+    ...extras,
+  };
 }
 
 export function getSnapshot(): Snapshot {
-  tick += 1;
+  tick += 2;
   const s = specs[scenario];
+  const jitter = scenario === "nominal" ? 1 : 0.55;
+  const hrHistory = sampleSeries(s.hr, 3.8 * jitter, 0);
+  const sysHistory = sampleSeries(s.sys, 4.2 * jitter, 0);
+  const diaHistory = sampleSeries(s.dia, 2.4 * jitter, 0, { phase: 3 });
+  const tempHistory = sampleSeries(s.temp, 0.14 * jitter, 1);
+  const spo2History = sampleSeries(s.spo2, 0.6 * jitter, 0, {
+    drift: scenario === "dire" ? -1.4 : scenario === "mild" ? -0.6 : 0,
+  });
+  const rrHistory = sampleSeries(s.rr, 1.1 * jitter, 0, {
+    drift: scenario === "nominal" ? 0 : 1.4,
+  });
+  const oxygenHistory = sampleSeries(s.oxygen, 0.12, 1, {
+    drift: scenario === "dire" ? -0.12 : 0,
+  });
+  const co2History = sampleSeries(s.co2, 0.05, 2, {
+    drift: scenario === "nominal" ? 0.03 : 0.1,
+  });
+  const pressureHistory = sampleSeries(s.pressure, 0.08, 1, {
+    drift: scenario === "dire" ? -0.18 : 0,
+  });
+  const suitHistory = sampleSeries(s.suit, 0.08, 1, {
+    drift: scenario === "dire" ? -0.7 : 0,
+  });
+  const radiationHistory = sampleSeries(
+    s.radiation,
+    scenario === "dire" ? 0.16 : 0.07,
+    2,
+    {
+      drift: scenario === "dire" ? 0.22 : 0.03,
+    },
+  );
+  const flareHistory = Array.from({ length: 15 }, () =>
+    scenario === "dire" ? 1 : 0,
+  );
+  const speHistory = sampleSeries(
+    s.spe,
+    scenario === "dire" ? 0.8 : 0.05,
+    1,
+    {
+      drift: scenario === "dire" ? 1.4 : 0,
+    },
+  );
+
+  const latestSys = sysHistory.at(-1) ?? s.sys;
+  const latestDia = diaHistory.at(-1) ?? s.dia;
+
   return {
     astronaut: { id: "A01", name: "Mara Voss", missionDay: 184 },
     scenario,
     vitals: [
-      {
-        label: "Heart rate",
-        value: Math.round(jitter(s.hr, 2)),
-        unit: "bpm",
-        baseline: 62,
-        direction: scenario === "dire" ? "up" : "stable",
-      },
-      {
-        label: "Blood pressure",
-        value: Math.round(s.sys),
-        unit: `/${Math.round(s.dia)} mmHg`,
-        baseline: 112,
-        direction: scenario === "dire" ? "down" : "stable",
-      },
-      {
-        label: "Temperature",
-        value: jitter(s.temp, 0.1),
-        unit: "°C",
-        baseline: 36.7,
-        direction: scenario === "dire" ? "up" : "stable",
-      },
-      {
-        label: "SpO₂",
-        value: Math.round(jitter(s.spo2, 0.4)),
-        unit: "%",
-        baseline: 98,
-        direction: scenario === "dire" ? "down" : "stable",
-      },
-      {
-        label: "Resp. rate",
-        value: Math.round(jitter(s.rr, 0.6)),
-        unit: "/min",
-        baseline: 14,
-        direction: scenario === "dire" ? "up" : "stable",
-      },
+      metric("Heart rate", hrHistory, "bpm", 62, 1.2, {
+        direction: scenario === "nominal" ? directionFrom(hrHistory, 1.2) : "up",
+      }),
+      metric("Blood pressure", sysHistory, `/${latestDia} mmHg`, 112, 1.5, {
+        direction:
+          scenario === "mild"
+            ? "up"
+            : scenario === "dire"
+              ? "down"
+              : directionFrom(sysHistory, 1.5),
+        historyText: sysHistory.map(
+          (sys, index) => `${sys}/${diaHistory[index] ?? latestDia}`,
+        ),
+      }),
+      metric("Temperature", tempHistory, "°C", 36.7, 0.08, {
+        direction:
+          scenario === "nominal" ? directionFrom(tempHistory, 0.08) : "up",
+      }),
+      metric("SpO₂", spo2History, "%", 98, 0.6, {
+        direction:
+          scenario === "nominal" ? directionFrom(spo2History, 0.6) : "down",
+      }),
+      metric("Resp. rate", rrHistory, "/min", 14, 0.8, {
+        direction:
+          scenario === "nominal" ? directionFrom(rrHistory, 0.8) : "up",
+      }),
     ],
     cabin: [
-      {
-        label: "Cabin O₂",
-        value: jitter(s.oxygen, 0.05),
-        unit: "%",
-        baseline: 20.9,
-        direction: scenario === "dire" ? "down" : "stable",
-      },
-      {
-        label: "Cabin CO₂",
-        value: jitter(s.co2, 0.02),
-        unit: "%",
-        baseline: 0.61,
-        direction: scenario === "mild" ? "up" : "stable",
-      },
-      {
-        label: "Cabin pressure",
-        value: jitter(s.pressure, 0.05),
-        unit: "kPa",
-        baseline: 101.3,
-        direction: scenario === "dire" ? "down" : "stable",
-      },
-      {
-        label: "Suit pressure",
-        value: jitter(s.suit, 0.04),
-        unit: "kPa",
-        baseline: 29.6,
-        direction: scenario === "dire" ? "down" : "stable",
-      },
+      metric("Cabin O₂", oxygenHistory, "%", 20.9, 0.05, {
+        direction:
+          scenario === "dire" ? "down" : directionFrom(oxygenHistory, 0.05),
+      }),
+      metric("Cabin CO₂", co2History, "%", 0.61, 0.03, {
+        direction:
+          scenario === "nominal" ? directionFrom(co2History, 0.03) : "up",
+      }),
+      metric("Cabin pressure", pressureHistory, "kPa", 101.3, 0.05, {
+        direction:
+          scenario === "dire" ? "down" : directionFrom(pressureHistory, 0.05),
+      }),
+      metric("Suit pressure", suitHistory, "kPa", 29.6, 0.08, {
+        direction:
+          scenario === "dire" ? "down" : directionFrom(suitHistory, 0.08),
+      }),
     ],
     space: [
-      {
-        label: "Hull radiation",
-        value: jitter(s.radiation, 0.04),
-        unit: "mSv/h",
-        baseline: 0.18,
+      metric("Hull radiation", radiationHistory, "mSv/h", 0.18, 0.04, {
+        direction:
+          scenario === "dire" ? "up" : directionFrom(radiationHistory, 0.04),
+      }),
+      metric("Solar flare", flareHistory, scenario === "dire" ? "active" : "quiet", 0, 0.5, {
         direction: scenario === "dire" ? "up" : "stable",
-      },
-      {
-        label: "Solar flare",
-        value: scenario === "dire" ? 1 : 0,
-        unit: scenario === "dire" ? "active" : "quiet",
-        baseline: 0,
-        direction: scenario === "dire" ? "up" : "stable",
-      },
-      {
-        label: "SPE flux",
-        value: jitter(s.spe, scenario === "dire" ? 0.8 : 0.05),
-        unit: "pfu",
-        baseline: 0.4,
-        direction: scenario === "dire" ? "up" : "stable",
-      },
+      }),
+      metric("SPE flux", speHistory, "pfu", 0.4, 0.08, {
+        direction: scenario === "dire" ? "up" : directionFrom(speHistory, 0.08),
+      }),
     ],
     peers: [
       {
@@ -320,17 +401,22 @@ export function investigationReply(input: string, voiceAssessment?: string) {
   const snapshot = getSnapshot();
   const evidence = findEvidence(input);
   const dire = snapshot.scenario === "dire";
-  const [heartRate, bloodPressure] = snapshot.vitals;
+  const mild = snapshot.scenario === "mild";
+  const [heartRate, bloodPressure, temperature] = snapshot.vitals;
   const [radiation] = snapshot.space;
   if (!heartRate || !bloodPressure || !radiation) {
     throw new Error("Incomplete onboard telemetry snapshot");
   }
   const observations = dire
-    ? `Your heart rate is ${heartRate.value} bpm against a personal resting baseline of 62 bpm, while blood pressure is ${bloodPressure.value}${bloodPressure.unit}. Hull radiation is ${radiation.value} mSv/h and a solar flare is active — treat this as a shielding window, not a diagnosis.`
-    : `Your heart rate is ${heartRate.value} bpm against a personal resting baseline of 62 bpm. Blood pressure, temperature, oxygen, and radiation remain near your current mission baseline.`;
+    ? `Your heart rate is ${heartRate.value} bpm against a personal resting baseline of 62 bpm, while blood pressure is ${bloodPressure.value}${bloodPressure.unit}. Temperature is ${temperature?.value ?? "elevated"} °C. Hull radiation is ${radiation.value} mSv/h and a solar flare is active — treat this as a shielding window, not a diagnosis.`
+    : mild
+      ? `Your heart rate is ${heartRate.value} bpm against a personal resting baseline of 62 bpm. Blood pressure is ${bloodPressure.value}${bloodPressure.unit} and temperature is ${temperature?.value ?? "elevated"} °C versus 36.7 °C. SpO₂ and respiratory rate have moved off your usual station targets.`
+      : `Your heart rate is ${heartRate.value} bpm against a personal resting baseline of 62 bpm. Blood pressure, temperature, oxygen, and radiation remain near your current mission baseline.`;
   const hypothesis = dire
     ? "The timing of symptoms, rising radiation, and the two related peer logs create a time-linked safety concern. This is not enough to establish that radiation caused the symptoms; dehydration, orthostatic effects, medication, infection, and other explanations still require checking."
-    : "The present measurements do not show a material departure from your personal baseline. Your reported breathing discomfort and headache still matter; they should be followed with a focused recheck rather than dismissed as normal.";
+    : mild
+      ? "Pulse, blood pressure, and temperature have moved away from your personal baseline, while SpO₂ is down and respiratory rate is up. That pattern warrants a focused recheck of cabin environment, hydration, and exertion; it is not a diagnosis."
+      : "The present measurements do not show a material departure from your personal baseline. Your reported breathing discomfort and headache still matter; they should be followed with a focused recheck rather than dismissed as normal.";
   const nextStep = dire
     ? "Immediate next evidence: move to the designated shielding protocol, repeat blood pressure and symptom check in 10 minutes, document fluid intake and emesis, and notify the crew medical lead."
     : "Next evidence: sit supported, repeat pulse and blood pressure after five quiet minutes, confirm hydration and meal intake, and tell me whether symptoms change with position or activity.";
@@ -342,7 +428,9 @@ export function investigationReply(input: string, voiceAssessment?: string) {
     text: `## Iris investigation update\n\n**Observed** — ${observations}${voice}\n\n**Working interpretation** — ${hypothesis}\n\n**What would reduce uncertainty next** — ${nextStep}\n\n**Historical context** — ${evidence.map((item) => `[${item.id}] ${item.snippet}`).join(" ")}`,
     speak: dire
       ? "I am flagging a high-priority monitoring concern. Please move to shielding and repeat your blood pressure now."
-      : "Your current measurements are close to your personal baseline. Let us repeat them after a short supported rest.",
+      : mild
+        ? "Your pulse, blood pressure, and temperature are above your personal baseline. SpO₂ is down and breathing is faster. Let us recheck after a short supported rest."
+        : "Your current measurements are close to your personal baseline. Let us repeat them after a short supported rest.",
     citations: evidence.map((item) => ({
       id: item.id,
       title: item.title,
