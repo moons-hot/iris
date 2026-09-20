@@ -52,6 +52,8 @@ export async function POST(request: Request) {
 
   if (typeof suppliedTranscript === "string" && suppliedTranscript.trim()) {
     const transcript = suppliedTranscript.trim();
+    console.log("[iris voice / crew said]", transcript);
+    console.log("[iris voice / source]", "supplied");
     const log = await recordCommsLog({
       sentAt,
       receivedAt,
@@ -74,6 +76,9 @@ export async function POST(request: Request) {
   }
 
   const result = await transcribeWithGrokVoice(audio);
+  console.log("[iris voice / crew said]", result.transcript || "(empty)");
+  console.log("[iris voice / source]", result.source);
+  if (result.error) console.error("[iris voice / error]", result.error);
   const log = await recordCommsLog({
     sentAt,
     receivedAt,

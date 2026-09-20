@@ -116,6 +116,8 @@ export async function transcribeWithGrokVoice(
     body: form,
   });
   if (!response.ok) {
+    const detail = await response.text();
+    console.error("[iris voice / stt failed]", response.status, detail);
     return {
       transcript: "",
       source: "onboard-demo",
@@ -125,8 +127,12 @@ export async function transcribeWithGrokVoice(
   }
 
   const result = (await response.json()) as { text?: string };
+  const transcript = result.text?.trim() ?? "";
+  if (!transcript) {
+    console.warn("[iris voice / stt empty body]", result);
+  }
   return {
-    transcript: result.text?.trim() ?? "",
+    transcript,
     source: "grok-voice",
     model: GROK_VOICE_MODEL,
   };

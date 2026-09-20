@@ -105,9 +105,10 @@ export default function GroundbasePage() {
     }
   }, [logScope, selectedId]);
 
+  // Delayed downlink — no need to hit Tiger/fleet every ~1.6s.
   useEffect(() => {
     void refresh();
-    const interval = window.setInterval(() => void refresh(), 1600);
+    const interval = window.setInterval(() => void refresh(), 90_000);
     return () => window.clearInterval(interval);
   }, [refresh]);
 

@@ -60,17 +60,23 @@ export default function StationPage() {
     setLogs(result.logs ?? []);
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refreshSnapshot = useCallback(async () => {
     const response = await fetch("/api/monitoring/tick");
     if (response.ok) setSnapshot(await response.json());
-    await refreshLogs();
-  }, [refreshLogs]);
+  }, []);
 
+  const refresh = useCallback(async () => {
+    await refreshSnapshot();
+    await refreshLogs();
+  }, [refreshLogs, refreshSnapshot]);
+
+  // Snapshot + logs load once; logs refresh again after voice/typed reports.
+  // Slow snapshot poll keeps vitals alive without hammering Tiger every second.
   useEffect(() => {
     void refresh();
-    const interval = window.setInterval(() => void refresh(), 1600);
+    const interval = window.setInterval(() => void refreshSnapshot(), 90_000);
     return () => window.clearInterval(interval);
-  }, [refresh]);
+  }, [refresh, refreshSnapshot]);
 
   useEffect(() => {
     void fetch("/api/voice")
@@ -109,6 +115,7 @@ export default function StationPage() {
   }
 
   async function speak(text: string) {
+    console.log("[iris downlink / bot says]", text);
     const response = await fetch("/api/voice/speak", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -158,6 +165,10 @@ export default function StationPage() {
 
   async function investigate(report = message, voiceAssessment?: string) {
     if (!report.trim()) return;
+    console.log("[iris uplink / crew said]", report.trim());
+    if (voiceAssessment) {
+      console.log("[iris uplink / voice assessment]", voiceAssessment);
+    }
     setLoading(true);
     try {
       const response = await fetch("/api/investigations/active/actions", {
@@ -171,6 +182,8 @@ export default function StationPage() {
         }),
       });
       const result = (await response.json()) as Finding;
+      console.log("[iris downlink / heard]", result.heard ?? report.trim());
+      console.log("[iris downlink / finding]", result.text ?? result.speak);
       setFinding({
         ...result,
         voiceEngine: result.voiceEngine,
@@ -222,6 +235,8 @@ export default function StationPage() {
             result.transcript?.trim() ||
             grokText.trim() ||
             "Voice report captured after scenario start.";
+          console.log("[iris uplink / transcript]", heard);
+          console.log("[iris uplink / voice source]", result.source);
           await investigate(heard, result.voiceAssessment);
           setFinding((current) =>
             current
@@ -281,6 +296,8 @@ export default function StationPage() {
         result.transcript?.trim() ||
         grokText.trim() ||
         "Voice report captured after scenario start.";
+      console.log("[iris uplink / transcript]", heard);
+      console.log("[iris uplink / voice source]", result.source);
       if (result.source === "grok-voice") {
         setGrokLive(true);
         setGrokText(heard);

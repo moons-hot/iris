@@ -3,7 +3,11 @@
  * @see firmware/iris_station/README.md
  */
 
-export const IRIS_SERIAL_BAUD = 115200;
+/** Match firmware kBaud. 460800 is a safer CP210x rate than 921600. */
+export const IRIS_SERIAL_BAUD = 460800;
+export const IRIS_PCM_RATE = 16000;
+/** Soften Grok TTS before the ESP amp (scratchy = often too hot). */
+export const IRIS_PCM_GAIN = 0.35;
 
 export type IrisSerialEvent =
   | { evt: "booting" }
@@ -17,6 +21,7 @@ export type IrisSerialEvent =
       bits: number;
       format: "wav";
     }
+  | { evt: "play_rx"; got: number; need: number }
   | { evt: "playing" }
   | { evt: "done" }
   | { evt: "idle" }
@@ -115,7 +120,12 @@ export class IrisEspLink {
     return new Blob([bytes], { type: "audio/wav" });
   }
 
-  async playPcm(pcm: ArrayBuffer, rate = 24000): Promise<void> {
+  async playPcm(pcm: ArrayBuffer, rate = IRIS_PCM_RATE): Promise<void> {
+    const started = performance.now();
+    const seconds = pcm.byteLength / 2 / rate;
+    console.log(
+      `[iris esp] play ${pcm.byteLength} bytes @ ${rate} Hz (~${seconds.toFixed(1)}s)`,
+    );
     await this.sendLine({
       cmd: "play",
       rate,
@@ -123,10 +133,15 @@ export class IrisEspLink {
       bits: 16,
       length: pcm.byteLength,
     });
-    await this.writeBytes(new Uint8Array(pcm));
-    await this.waitForEvent("playing");
-    await this.waitForEvent("done");
-    await this.waitForEvent("idle");
+    // Pace the write so ESP RX (even with a big buffer) does not drop bytes.
+    await this.writeBytes(new Uint8Array(pcm), { pace: true });
+    const transferMs = Math.max(60_000, Math.round(seconds * 3000) + 30_000);
+    await this.waitForEvent("playing", transferMs);
+    await this.waitForEvent("done", Math.round(seconds * 1000) + 15_000);
+    await this.waitForEvent("idle", 10_000);
+    console.log(
+      `[iris esp] play finished in ${Math.round(performance.now() - started)} ms`,
+    );
   }
 
   private async sendLine(payload: Record<string, unknown>): Promise<void> {
@@ -135,11 +150,18 @@ export class IrisEspLink {
     await this.writer.write(new TextEncoder().encode(line));
   }
 
-  private async writeBytes(data: Uint8Array): Promise<void> {
+  private async writeBytes(
+    data: Uint8Array,
+    options?: { pace?: boolean },
+  ): Promise<void> {
     if (!this.writer) throw new Error("Serial not connected");
-    const chunkSize = 4096;
+    // Small paced chunks avoid overflowing the ESP CDC/UART RX buffer.
+    const chunkSize = options?.pace ? 2048 : 8192;
     for (let offset = 0; offset < data.length; offset += chunkSize) {
       await this.writer.write(data.subarray(offset, offset + chunkSize));
+      if (options?.pace) {
+        await new Promise((r) => setTimeout(r, 4));
+      }
     }
   }
 
@@ -183,6 +205,14 @@ export class IrisEspLink {
         throw new Error(event.msg);
       }
       if (event.evt === "booting") continue;
+      if (event.evt === "play_rx") {
+        console.log(
+          `[iris esp] rx ${event.got}/${event.need} (${Math.round(
+            (100 * event.got) / Math.max(1, event.need),
+          )}%)`,
+        );
+        continue;
+      }
       if (event.evt === expected) {
         return event;
       }
@@ -243,14 +273,15 @@ export class IrisEspLink {
 /** Decode speak API MPEG audio to mono 16-bit PCM at targetRate for ESP playback. */
 export async function mp3BlobToMonoPcm(
   blob: Blob,
-  targetRate = 24000,
+  targetRate = IRIS_PCM_RATE,
+  gain = IRIS_PCM_GAIN,
 ): Promise<ArrayBuffer> {
   const ctx = new AudioContext();
   try {
     const buffer = await ctx.decodeAudioData(await blob.arrayBuffer());
     const mono = mixToMono(buffer);
     const resampled = resampleMono(mono, buffer.sampleRate, targetRate);
-    return floatToInt16Pcm(resampled);
+    return floatToInt16Pcm(resampled, gain);
   } finally {
     await ctx.close();
   }
@@ -288,11 +319,14 @@ function resampleMono(
   return out;
 }
 
-function floatToInt16Pcm(input: Float32Array): ArrayBuffer {
+function floatToInt16Pcm(input: Float32Array, gain = 1): ArrayBuffer {
   const out = new ArrayBuffer(input.length * 2);
   const view = new DataView(out);
   for (let i = 0; i < input.length; i++) {
-    const sample = Math.max(-1, Math.min(1, input[i] ?? 0));
+    // Soft-clip after gain so hot TTS peaks don't hash through the amp.
+    let sample = (input[i] ?? 0) * gain;
+    sample = Math.tanh(sample * 1.2) / Math.tanh(1.2);
+    sample = Math.max(-1, Math.min(1, sample));
     view.setInt16(i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
   }
   return out;

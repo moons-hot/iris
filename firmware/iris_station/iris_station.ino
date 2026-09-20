@@ -18,14 +18,18 @@ static constexpr int kPinScl = 2;
 static constexpr int kPinPa = 48;
 static constexpr int kI2cHz = 100000;
 
-static constexpr uint32_t kBaud = 115200;
-static constexpr int kRate = 24000;
+static constexpr uint32_t kBaud = 460800;
+static constexpr int kRate = 16000;
 static constexpr int kChannels = 2;
 static constexpr int kBits = 16;
 static constexpr uint32_t kMaxSec = 12;
 static constexpr size_t kMaxPcm = (size_t)kRate * (kBits / 8) * 1 * kMaxSec;
 static constexpr size_t kChunk = 1024;
-static constexpr int kVolume = 15;
+static constexpr size_t kPlayFrames = 256;  // stereo frames per I2S write
+static constexpr size_t kRxBuf = 32768;
+static constexpr int kVolume = 8;
+// Extra soft attenuation on host PCM (0–100). Keeps TTS from clipping the PA.
+static constexpr int kPlayGainPct = 35;
 
 enum class State { Idle, Recording, ReceivingPlay };
 
@@ -43,6 +47,9 @@ uint8_t *playBuf = nullptr;
 size_t playNeed = 0;
 size_t playGot = 0;
 uint32_t lastHbMs = 0;
+uint32_t playLastByteMs = 0;
+// Which UART/CDC last got a host command — binary replies go only there.
+Stream *activeHost = &Serial0;
 
 static void logLine(const char *s) {
   Serial.println(s);
@@ -68,14 +75,16 @@ static void emitError(const char *msg) {
 
 static void announce() {
   if (audioOk) {
-    emit("{\"evt\":\"ready\",\"audio\":true,\"rate\":24000,\"channels\":1,\"bits\":16}");
+    emit("{\"evt\":\"ready\",\"audio\":true,\"rate\":16000,\"channels\":1,\"bits\":16}");
     emit("{\"evt\":\"idle\"}");
   } else {
-    emit("{\"evt\":\"ready\",\"audio\":false,\"rate\":24000,\"channels\":1,\"bits\":16}");
+    emit("{\"evt\":\"ready\",\"audio\":false,\"rate\":16000,\"channels\":1,\"bits\":16}");
   }
 }
 
 static void serialBegin() {
+  Serial.setRxBufferSize(kRxBuf);
+  Serial0.setRxBufferSize(kRxBuf);
   Serial.begin(kBaud);
   Serial0.begin(kBaud);
   delay(800);
@@ -127,7 +136,7 @@ static bool tryDriver(AudioDriver &driver, const char *name) {
   cfg.input_device = ADC_INPUT_LINE1;
   cfg.output_device = DAC_OUTPUT_ALL;
   cfg.i2s.bits = BIT_LENGTH_16BITS;
-  cfg.i2s.rate = RATE_24K;
+  cfg.i2s.rate = RATE_16K;
   if (!board->begin(cfg)) {
     emitError("board_begin");
     return false;
@@ -160,11 +169,11 @@ static void playTone() {
   board->setPAPower(true);
 
   const float freq = 440.0f;
-  const size_t samples = (size_t)(kRate * 0.25f);
+  const size_t samples = (size_t)(kRate * 0.2f);
   uint8_t frame[4];
   for (size_t i = 0; i < samples; i++) {
     const float t = (float)i / (float)kRate;
-    const int16_t s = (int16_t)(sinf(2.0f * 3.14159265f * freq * t) * 2000.0f);
+    const int16_t s = (int16_t)(sinf(2.0f * 3.14159265f * freq * t) * 1200.0f);
     frame[0] = (uint8_t)(s & 0xff);
     frame[1] = (uint8_t)((s >> 8) & 0xff);
     frame[2] = frame[0];
@@ -222,14 +231,10 @@ static void stopRec() {
 
   uint8_t hdr[44];
   writeWavHeader(hdr, pcmBytes);
-  Serial.write(hdr, 44);
-  Serial0.write(hdr, 44);
-  if (pcmBytes && pcmBuf) {
-    Serial.write(pcmBuf, pcmBytes);
-    Serial0.write(pcmBuf, pcmBytes);
-  }
-  Serial.flush();
-  Serial0.flush();
+  // Binary only on the port that issued the command (avoid dual-port WAV corruption).
+  activeHost->write(hdr, 44);
+  if (pcmBytes && pcmBuf) activeHost->write(pcmBuf, pcmBytes);
+  activeHost->flush();
 
   pcmFilled = 0;
   state = State::Idle;
@@ -253,7 +258,9 @@ static void beginPlay(size_t length) {
   }
   playNeed = length;
   playGot = 0;
+  playLastByteMs = millis();
   state = State::ReceivingPlay;
+  // Don't spam play_rx while receiving — host isn't reading yet and TX can block RX.
 }
 
 static void pumpRec() {
@@ -274,29 +281,70 @@ static void pumpRec() {
 static int hostAvailable() { return Serial.available() + Serial0.available(); }
 
 static int hostRead() {
-  if (Serial.available()) return Serial.read();
-  if (Serial0.available()) return Serial0.read();
+  if (Serial.available()) {
+    activeHost = &Serial;
+    return Serial.read();
+  }
+  if (Serial0.available()) {
+    activeHost = &Serial0;
+    return Serial0.read();
+  }
   return -1;
 }
 
+static int16_t attenuateSample(int16_t s) {
+  const int32_t scaled = ((int32_t)s * kPlayGainPct) / 100;
+  if (scaled > 32767) return 32767;
+  if (scaled < -32768) return -32768;
+  return (int16_t)scaled;
+}
+
 static void pumpPlay() {
-  if (state != State::ReceivingPlay || !playBuf) return;
-  while (hostAvailable() > 0 && playGot < playNeed) {
-    playBuf[playGot++] = (uint8_t)hostRead();
+  if (state != State::ReceivingPlay || !playBuf || !activeHost) return;
+
+  // Only drain the port that sent the play command (don't mix CDC + UART0).
+  while (activeHost->available() > 0 && playGot < playNeed) {
+    playBuf[playGot++] = (uint8_t)activeHost->read();
+    playLastByteMs = millis();
   }
-  if (playGot < playNeed) return;
+
+  if (playGot < playNeed) {
+    // Host stopped sending — surface instead of hanging forever.
+    if (millis() - playLastByteMs > 8000) {
+      logf("{\"evt\":\"error\",\"msg\":\"play_stall got=%lu need=%lu\"}",
+           (unsigned long)playGot, (unsigned long)playNeed);
+      heap_caps_free(playBuf);
+      playBuf = nullptr;
+      playNeed = playGot = 0;
+      state = State::Idle;
+      emit("{\"evt\":\"idle\"}");
+    }
+    return;
+  }
 
   emit("{\"evt\":\"playing\"}");
   board->setPAPower(true);
+
   const size_t samples = playNeed / 2;
-  uint8_t frame[4];
-  for (size_t i = 0; i < samples; i++) {
-    frame[0] = playBuf[i * 2];
-    frame[1] = playBuf[i * 2 + 1];
-    frame[2] = frame[0];
-    frame[3] = frame[1];
-    codec->write(frame, 4);
+  uint8_t stereo[kPlayFrames * 4];
+  size_t i = 0;
+  while (i < samples) {
+    const size_t n = min(kPlayFrames, samples - i);
+    for (size_t f = 0; f < n; f++) {
+      const size_t off = (i + f) * 2;
+      const int16_t raw = (int16_t)(playBuf[off] | (playBuf[off + 1] << 8));
+      const int16_t s = attenuateSample(raw);
+      const uint8_t lo = (uint8_t)(s & 0xff);
+      const uint8_t hi = (uint8_t)((s >> 8) & 0xff);
+      stereo[f * 4 + 0] = lo;
+      stereo[f * 4 + 1] = hi;
+      stereo[f * 4 + 2] = lo;
+      stereo[f * 4 + 3] = hi;
+    }
+    codec->write(stereo, n * 4);
+    i += n;
   }
+
   board->setPAPower(false);
   heap_caps_free(playBuf);
   playBuf = nullptr;

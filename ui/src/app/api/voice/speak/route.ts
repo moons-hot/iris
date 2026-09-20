@@ -5,6 +5,8 @@ export async function POST(request: Request) {
   if (!body.text?.trim())
     return Response.json({ error: "text is required" }, { status: 400 });
 
+  console.log("[iris speak / bot says]", body.text.trim());
+
   if (!process.env.XAI_API_KEY) {
     return Response.json({ text: body.text, demoFallback: true });
   }
