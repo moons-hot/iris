@@ -181,6 +181,17 @@ function transcriptFrom(result: {
   return (result.text?.trim() || fromWords).trim();
 }
 
+/** Copy into a detached Uint8Array so File/Blob accept it under strict BlobPart typing. */
+function toAudioFile(
+  bytes: Uint8Array,
+  name: string,
+  type: string,
+): File {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return new File([copy], name, { type });
+}
+
 export async function transcribeWithGrokVoice(
   audio: File,
 ): Promise<GrokVoiceResult> {
@@ -200,7 +211,7 @@ export async function transcribeWithGrokVoice(
   const { pcm, sampleRate } = prepared;
   const wavBytes = pcm16ToWavBytes(pcm, sampleRate);
   const loudness = await audioLoudness(
-    new File([wavBytes], "level.wav", { type: "audio/wav" }),
+    toAudioFile(wavBytes, "level.wav", "audio/wav"),
   );
   console.log("[iris voice / audio level]", {
     name: audio.name,
@@ -222,9 +233,7 @@ export async function transcribeWithGrokVoice(
   }
 
   // Always send a rewritten canonical WAV — ESP serial WAVs often sniff as format="".
-  const wavFile = new File([wavBytes], "astronaut-report.wav", {
-    type: "audio/wav",
-  });
+  const wavFile = toAudioFile(wavBytes, "astronaut-report.wav", "audio/wav");
   let posted = await postStt(key, buildSttForm(wavFile));
 
   // Fallback: raw PCM with explicit format (xAI requires audio_format + sample_rate).
@@ -233,9 +242,11 @@ export async function transcribeWithGrokVoice(
       "[iris voice / wav stt failed, retrying raw pcm]",
       posted.detail,
     );
-    const pcmFile = new File([pcm], "astronaut-report.pcm", {
-      type: "application/octet-stream",
-    });
+    const pcmFile = toAudioFile(
+      pcm,
+      "astronaut-report.pcm",
+      "application/octet-stream",
+    );
     posted = await postStt(
       key,
       buildSttForm(pcmFile, {
@@ -256,9 +267,10 @@ export async function transcribeWithGrokVoice(
   }
 
   let transcript = transcriptFrom(posted.result);
+  let duration = posted.result.duration;
   if (!transcript) {
     console.warn("[iris voice / stt empty body, retrying original wav]", {
-      duration: posted.result.duration,
+      duration,
       loudness,
       result: posted.result,
     });
@@ -266,26 +278,29 @@ export async function transcribeWithGrokVoice(
     const retry = await postStt(
       key,
       buildSttForm(
-        new File([originalWav], "astronaut-original.wav", { type: "audio/wav" }),
+        toAudioFile(originalWav, "astronaut-original.wav", "audio/wav"),
       ),
     );
     if (retry.ok) {
       transcript = transcriptFrom(retry.result);
-      if (transcript) posted = retry;
+      if (transcript) {
+        posted = retry;
+        duration = retry.result.duration;
+      }
     }
   }
   if (!transcript) {
     console.warn("[iris voice / stt empty body]", {
-      duration: posted.ok ? posted.result.duration : undefined,
+      duration,
       loudness,
-      result: posted.ok ? posted.result : posted.detail,
+      result: posted.result,
     });
   }
   return {
     transcript,
     source: transcript ? "grok-voice" : "onboard-demo",
     model: GROK_VOICE_MODEL,
-    duration: posted.ok ? posted.result.duration : undefined,
+    duration,
     demoFallback: !transcript,
     error: transcript
       ? undefined
@@ -294,3 +309,4 @@ export async function transcribeWithGrokVoice(
         : "STT returned no speech",
   };
 }
+

@@ -28,9 +28,18 @@ describe("speak-text", () => {
     const speak = investigationToSpeak(
       "First sentence is fine. Second sentence is also fine. Third sentence should often be cut when the budget is tight.",
       70,
+      5,
     );
     expect(speak.length).toBeLessThanOrEqual(70);
     expect(speak).toContain("First sentence");
+  });
+
+  it("keeps cabin briefings to at most five sentences", () => {
+    const speak = investigationToSpeak(
+      "## Speak aloud\n\nOne. Two. Three. Four. Five. Six should be dropped.",
+    );
+    expect(speak).toBe("One. Two. Three. Four. Five.");
+    expect(speak).not.toContain("Six");
   });
 
   it("chunks long speech on sentence boundaries", () => {

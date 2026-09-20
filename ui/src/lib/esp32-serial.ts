@@ -363,7 +363,9 @@ export async function mp3BlobToMonoPcm(
   const type = (blob.type || "").toLowerCase();
   // Native 16 kHz PCM from Grok — skip decodeAudioData (faster, less scratchy).
   if (type.includes("pcm") || type === "application/octet-stream") {
-    return applyPcm16Gain(new Uint8Array(await blob.arrayBuffer()), gain).buffer;
+    return toArrayBuffer(
+      applyPcm16Gain(new Uint8Array(await blob.arrayBuffer()), gain),
+    );
   }
 
   const ctx = new AudioContext();
@@ -391,6 +393,13 @@ export function applyPcm16Gain(pcm: Uint8Array, gain = IRIS_PCM_GAIN): Uint8Arra
     dst.setInt16(i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
   }
   return out;
+}
+
+/** Detach a Uint8Array onto a plain ArrayBuffer (avoids SharedArrayBuffer typing). */
+export function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(copy).set(bytes);
+  return copy;
 }
 
 function mixToMono(buffer: AudioBuffer): Float32Array {
@@ -461,6 +470,7 @@ declare global {
     close(): Promise<void>;
     readable: ReadableStream<Uint8Array> | null;
     writable: WritableStream<Uint8Array> | null;
+    getInfo(): { usbVendorId?: number; usbProductId?: number };
   }
 
   interface SerialOptions {

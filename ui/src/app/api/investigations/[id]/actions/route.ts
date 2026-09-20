@@ -19,7 +19,7 @@ Return markdown with these headings:
 - What would reduce uncertainty next
 - Speak aloud
 Keep Observed through next-steps concise for the screen (short bullets, not a full vitals dump).
-The final "## Speak aloud" section is what the crew hears over the cabin speaker: one short sentence, optionally a second, under 140 characters total. Calm and plain. Acknowledge the report and one next action. No markdown, no bullet lists, no citation IDs, no vitals dump.
+The final "## Speak aloud" section is what the crew hears: at most 5 short sentences (under ~620 characters). It MUST use the voice transcript together with the live metrics. Cover: (1) what you heard, (2) how key vitals/cabin/space readings compare to personal baseline, (3) what could plausibly be contributing — possibilities only, not a diagnosis, (4) whether this looks critical right now or monitor-level, with any brief historical/context cue if useful, (5) one concrete next check or action. Calm tone. No markdown, no bullet lists, no citation IDs, no reading every vital.
 Preserve citation IDs already in the context in the non-speak sections only.
 Use the NASA Human Research Roadmap Risk 95 reference when relevant: https://humanresearchroadmap.nasa.gov/Risks/risk.aspx?i=95.`;
 

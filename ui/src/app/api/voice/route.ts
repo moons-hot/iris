@@ -1,6 +1,3 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
-
 import {
   grokVoiceConfigured,
   grokVoiceInstructions,
@@ -12,38 +9,6 @@ import { parseSentAt, recordCommsLog } from "@/lib/tiger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const VOICE_CAPTURE_DIR = path.join(process.cwd(), "tmp", "voice-captures");
-
-async function saveRawVoiceCapture(audio: File) {
-  const bytes = Buffer.from(await audio.arrayBuffer());
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const ext = audio.name.includes(".")
-    ? audio.name.slice(audio.name.lastIndexOf("."))
-    : ".wav";
-  const base = `${stamp}-raw`;
-  await mkdir(VOICE_CAPTURE_DIR, { recursive: true });
-  const audioPath = path.join(VOICE_CAPTURE_DIR, `${base}${ext}`);
-  await writeFile(audioPath, bytes);
-  console.log("[iris voice / saved raw]", audioPath, `(${bytes.byteLength} bytes)`);
-  return { audioPath, base, bytes };
-}
-
-async function saveVoiceCaptureNote(
-  base: string,
-  note: { transcript: string; source: string; error?: string },
-) {
-  const notePath = path.join(VOICE_CAPTURE_DIR, `${base}.txt`);
-  const body = [
-    `transcript: ${note.transcript || "(empty)"}`,
-    `source: ${note.source}`,
-    note.error ? `error: ${note.error}` : null,
-  ]
-    .filter(Boolean)
-    .join("\n");
-  await writeFile(notePath, `${body}\n`, "utf8");
-  console.log("[iris voice / saved note]", notePath);
-}
 
 function assessVoice(transcript: string) {
   const normalized = transcript.toLowerCase();
@@ -110,17 +75,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const capture = await saveRawVoiceCapture(audio);
-  // Re-wrap so STT still gets a File after we consumed the original buffer.
-  const audioForStt = new File([capture.bytes], audio.name || "astronaut-report.wav", {
-    type: audio.type || "audio/wav",
-  });
-  const result = await transcribeWithGrokVoice(audioForStt);
-  await saveVoiceCaptureNote(capture.base, {
-    transcript: result.transcript,
-    source: result.source,
-    error: result.error,
-  });
+  const result = await transcribeWithGrokVoice(audio);
   console.log("[iris voice / crew said]", result.transcript || "(empty)");
   console.log("[iris voice / source]", result.source);
   if (result.error) console.error("[iris voice / error]", result.error);
@@ -138,7 +93,6 @@ export async function POST(request: Request) {
     {
       ...result,
       voiceAssessment: assessVoice(result.transcript),
-      savedRaw: capture.audioPath,
       log,
     },
     { status },

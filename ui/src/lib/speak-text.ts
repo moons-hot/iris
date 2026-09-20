@@ -1,5 +1,6 @@
-/** Keep ESP TTS short: less serial PCM = faster, less scratchy play. */
-const DEFAULT_SPEAK_MAX = 140;
+/** Cabin speaker briefing: up to five sentences, not a one-liner ack. */
+const DEFAULT_SPEAK_MAX_SENTENCES = 5;
+const DEFAULT_SPEAK_MAX_CHARS = 620;
 
 /** Prefer a dedicated Speak section when Grok provides one. */
 export function extractSpeakSection(markdown: string): string | null {
@@ -27,44 +28,55 @@ function stripMarkdownToProse(markdown: string): string {
     .trim();
 }
 
-/** Keep spoken replies short enough for ESP TTS + serial playback. */
-export function truncateAtSentence(text: string, maxChars = DEFAULT_SPEAK_MAX): string {
+function sentencesOf(text: string): string[] {
+  return (text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [text])
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** Keep spoken replies to a few sentences without cutting mid-thought when possible. */
+export function truncateAtSentence(
+  text: string,
+  maxChars = DEFAULT_SPEAK_MAX_CHARS,
+  maxSentences = DEFAULT_SPEAK_MAX_SENTENCES,
+): string {
   const cleaned = text.replace(/\s+/g, " ").trim();
-  if (!cleaned || cleaned.length <= maxChars) return cleaned;
-  const sentences = cleaned.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [cleaned];
+  if (!cleaned) return cleaned;
+
+  const sentences = sentencesOf(cleaned);
   let out = "";
-  for (const raw of sentences) {
-    const sentence = raw.trim();
-    if (!sentence) continue;
+  let count = 0;
+  for (const sentence of sentences) {
+    if (count >= maxSentences) break;
     const next = out ? `${out} ${sentence}` : sentence;
-    if (next.length > maxChars) break;
+    if (out && next.length > maxChars) break;
     out = next;
+    count += 1;
   }
   return out || cleaned.slice(0, maxChars).trim();
 }
 
-/** Turn investigation markdown into a short spoken line for TTS. */
+/** Turn investigation markdown into a short spoken briefing for TTS. */
 export function investigationToSpeak(
   markdown: string,
-  maxChars = DEFAULT_SPEAK_MAX,
+  maxChars = DEFAULT_SPEAK_MAX_CHARS,
+  maxSentences = DEFAULT_SPEAK_MAX_SENTENCES,
 ): string {
   const dedicated = extractSpeakSection(markdown);
   const prose = stripMarkdownToProse(dedicated ?? markdown);
-  return truncateAtSentence(prose, maxChars);
+  return truncateAtSentence(prose, maxChars, maxSentences);
 }
 
 /** Split long spoken replies into TTS-friendly chunks without cutting mid-sentence when possible. */
-export function splitSpeakChunks(text: string, maxChars = 200): string[] {
+export function splitSpeakChunks(text: string, maxChars = 280): string[] {
   const cleaned = text.replace(/\s+/g, " ").trim();
   if (!cleaned) return [];
   if (cleaned.length <= maxChars) return [cleaned];
 
-  const sentences = cleaned.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [cleaned];
+  const sentences = sentencesOf(cleaned);
   const chunks: string[] = [];
   let current = "";
-  for (const raw of sentences) {
-    const sentence = raw.trim();
-    if (!sentence) continue;
+  for (const sentence of sentences) {
     if (!current) {
       current = sentence;
       continue;

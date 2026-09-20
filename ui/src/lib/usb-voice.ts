@@ -147,7 +147,10 @@ export function looksLikeText(bytes: Uint8Array): boolean {
 }
 
 export function pcm16ToWav(pcm: Uint8Array, sampleRate = 16000): Blob {
-  return new Blob([pcm16ToWavBytes(pcm, sampleRate)], { type: "audio/wav" });
+  const bytes = pcm16ToWavBytes(pcm, sampleRate);
+  const copy = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(copy).set(bytes);
+  return new Blob([copy], { type: "audio/wav" });
 }
 
 /** Canonical 44-byte PCM WAV — use this before xAI STT (ESP headers can sniff-fail). */
@@ -264,8 +267,14 @@ export function preparePcmForStt(
     if (a > peak) peak = a;
   }
   const mean = sum / samples;
-  // Only boost quiet captures. Loud ESP noise already saturates STT's VAD.
-  const gain = peak < 8000 ? Math.min(4, (0.55 * 32767) / peak) : 1;
+  // Quiet → boost. Hard-clipped ESP captures (peak at ceiling) → soften so STT
+  // sees speech instead of a flat rail; leave normal speech alone.
+  const gain =
+    peak < 8000
+      ? Math.min(4, (0.55 * 32767) / peak)
+      : peak >= 30000
+        ? 0.42
+        : 1;
 
   const cleaned = new Uint8Array(samples * 2);
   const out = new DataView(cleaned.buffer);

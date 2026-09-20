@@ -100,7 +100,7 @@ export async function openEsp32Serial(): Promise<BrowserSerialPort> {
     }) ?? existing[0];
   const port = preferred ?? (await serial.requestPort({ filters: ESP32_SERIAL_FILTERS }));
   await port.open({ baudRate: 115200 });
-  return port;
+  return port as BrowserSerialPort;
 }
 
 export async function captureSerialAudio(

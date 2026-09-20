@@ -796,10 +796,10 @@ export function investigationReply(
     telemetry: packet,
     text: `## Iris investigation update\n\n**Observed** — ${observations}\n\n**Possible concerns to investigate** — ${possibleConcerns.join(" ")}\n\n**Immediate actions** — ${recommendedActions.join(" ")}\n\n**Working interpretation** — ${hypothesis}\n\n**Historical context** — ${evidence.map((item) => `[${item.id}] ${item.snippet}`).join(" ")}`,
     speak: dire
-      ? "High-priority concern — move to shielding now and notify the crew medical lead."
+      ? "I heard your report and the readings look high-priority right now. Vitals and the space-weather spike line up in time with what you described, which warrants shielding and medical-lead notification, not a diagnosis. Historical Risk 95 context treats co-timed radiation and neuro-ocular style symptoms as a safety investigation. Sit supported, move to the designated protocol, and we will recheck blood pressure once you are shielded."
       : mild
-        ? "I heard you. Vitals and cabin CO2 are off baseline — sit, hydrate, recheck in five minutes."
-        : "I heard you. Readings are near baseline — sit, recheck pulse in five minutes, and tell me if anything changes.",
+        ? "I heard your report. Pulse, blood pressure, temperature, SpO2, breathing rate, and cabin CO2 are off your personal baseline in a pattern that can fit exertion, hydration, or cabin-air issues — possibilities only. This looks monitor-level rather than an immediate critical emergency from telemetry alone. Sit supported, hydrate, stop nonessential exertion, and we will recheck the same vitals after five quiet minutes."
+        : "I heard your report. Current measurements are close to your personal baseline, so telemetry alone does not explain the symptoms yet and this does not look critical from the numbers right now. We should still investigate how you feel rather than dismiss it. Sit supported, confirm hydration and your last meal, repeat pulse and blood pressure after five quiet minutes, and tell me if anything changes.",
     citations: evidence.map((item) => ({
       id: item.id,
       title: item.title,

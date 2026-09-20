@@ -16,6 +16,7 @@ import {
   IRIS_PCM_RATE,
   mp3BlobToMonoPcm,
   applyPcm16Gain,
+  toArrayBuffer,
 } from "@/lib/esp32-serial";
 import { createPcmTap } from "@/lib/astronaut-mic";
 import { startBrowserStt, type BrowserSttSession } from "@/lib/browser-stt";
@@ -121,8 +122,8 @@ export default function StationPage() {
   }
 
   async function speak(text: string) {
-    const spoken = truncateAtSentence(text, 140);
-    const chunks = splitSpeakChunks(spoken, 140);
+    const spoken = truncateAtSentence(text);
+    const chunks = splitSpeakChunks(spoken);
     console.log(
       "[iris downlink / bot says]",
       chunks.length > 1 ? `(${chunks.length} parts) ${spoken}` : spoken,
@@ -141,7 +142,9 @@ export default function StationPage() {
         if (response.ok && type.startsWith("audio/") && esp.current?.connected) {
           const blob = await response.blob();
           const pcm = type.includes("pcm")
-            ? applyPcm16Gain(new Uint8Array(await blob.arrayBuffer())).buffer
+            ? toArrayBuffer(
+                applyPcm16Gain(new Uint8Array(await blob.arrayBuffer())),
+              )
             : await mp3BlobToMonoPcm(blob);
           await esp.current.playPcm(pcm);
           continue;
@@ -251,7 +254,6 @@ export default function StationPage() {
         result.speak?.trim() ||
           result.text?.replace(/[#*_`[\]]/g, " ").replace(/\s+/g, " ").trim() ||
           "",
-        140,
       );
       if (spoken) await speak(spoken);
       await refresh();

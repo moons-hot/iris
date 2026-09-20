@@ -7,6 +7,20 @@ export function stitchSpeechResults(finals: string[], interim = ""): string {
     .trim();
 }
 
+type SpeechRecognitionResultLike = {
+  isFinal: boolean;
+  0?: { transcript?: string };
+};
+
+type SpeechRecognitionEventLike = {
+  resultIndex: number;
+  results: ArrayLike<SpeechRecognitionResultLike>;
+};
+
+type SpeechRecognitionErrorEventLike = {
+  error: string;
+};
+
 type BrowserSpeechRecognition = {
   lang: string;
   continuous: boolean;
@@ -15,8 +29,8 @@ type BrowserSpeechRecognition = {
   start: () => void;
   stop: () => void;
   abort: () => void;
-  onresult: ((event: SpeechRecognitionEvent) => void) | null;
-  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
   onend: (() => void) | null;
 };
 
