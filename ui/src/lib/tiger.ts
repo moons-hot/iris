@@ -1,5 +1,4 @@
-import pg from "pg";
-import type { PoolConfig } from "pg";
+import { createRequire } from "node:module";
 
 export type CommsChannel = "typed" | "voice" | "speak";
 export type CommsDirection = "uplink" | "downlink";
@@ -28,7 +27,20 @@ export type CommsLogRow = CommsLogMeta & {
   summary: string;
 };
 
-type GlobalPg = typeof globalThis & { irisTigerPool?: pg.Pool };
+type PoolQueryResult<T> = { rows: T[] };
+type PoolLike = {
+  query: <T>(sql: string, params?: unknown[]) => Promise<PoolQueryResult<T>>;
+};
+type PgModule = {
+  Pool: new (config: {
+    connectionString: string;
+    max?: number;
+    ssl?: { rejectUnauthorized: boolean };
+  }) => PoolLike;
+  default?: PgModule;
+};
+
+type GlobalPg = typeof globalThis & { irisTigerPool?: PoolLike };
 
 const globalPg = globalThis as GlobalPg;
 
@@ -48,7 +60,17 @@ export function isTigerConfigured(): boolean {
   return Boolean(process.env.TIGER_DATABASE_URL);
 }
 
-function connectionConfig(connectionString: string): PoolConfig {
+function loadPg(): PgModule | null {
+  try {
+    const require = createRequire(import.meta.url);
+    const loaded = require("pg") as PgModule;
+    return loaded.Pool ? loaded : (loaded.default ?? null);
+  } catch {
+    return null;
+  }
+}
+
+function connectionConfig(connectionString: string) {
   const url = new URL(connectionString);
   url.searchParams.set("sslmode", "require");
   url.searchParams.set("uselibpqcompat", "true");
@@ -59,10 +81,15 @@ function connectionConfig(connectionString: string): PoolConfig {
   };
 }
 
-function getPool(): pg.Pool | null {
+function getPool(): PoolLike | null {
   const connectionString = process.env.TIGER_DATABASE_URL;
   if (!connectionString) return null;
   if (!globalPg.irisTigerPool) {
+    const pg = loadPg();
+    if (!pg?.Pool) {
+      console.error("Tiger Data is configured, but the pg package is not installed");
+      return null;
+    }
     globalPg.irisTigerPool = new pg.Pool(connectionConfig(connectionString));
   }
   return globalPg.irisTigerPool;

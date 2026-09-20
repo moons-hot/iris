@@ -6,7 +6,7 @@ import { Mic, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 
 type Metric = {
   label: string;
