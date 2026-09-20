@@ -893,7 +893,7 @@ export default function StationPage() {
                     <Panel className="lg:col-span-4">
                         <div className="mb-4 flex items-center justify-between">
                             <p className="text-sm text-muted-foreground">
-                                Crew
+                                Crew leader
                             </p>
                             <p className="text-xs text-muted-foreground">
                                 vs baseline
