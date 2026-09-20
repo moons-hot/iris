@@ -1,35 +1,26 @@
 import Link from "next/link";
 
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 
 export default function HomePage() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-background text-foreground">
-      <div className="mx-auto flex max-w-lg flex-col items-center gap-8 px-6 py-16 text-center">
-        <p className="text-xs font-medium tracking-[0.35em] text-muted-foreground uppercase">
-          Autonomous Health Investigation
+    <main className="relative flex min-h-screen items-center justify-center px-6 py-16">
+      <div className="absolute top-6 right-6">
+        <ThemeToggle />
+      </div>
+      <div className="mx-auto flex w-full max-w-xl flex-col items-center gap-8 rounded-[2rem] bg-card/90 px-8 py-14 text-center shadow-[var(--panel-shadow)]">
+        <p className="text-xs font-medium tracking-[0.28em] text-muted-foreground uppercase">
+          Onboard station
         </p>
-        <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-          Iris
-        </h1>
-        <p className="text-muted-foreground">
-          Onboard health investigation for deep-space crews. Iris compares
-          personal baselines, environmental context, and onboard evidence.
+        <h1 className="font-serif text-6xl tracking-tight">Iris</h1>
+        <p className="max-w-sm text-muted-foreground">
+          Crew health, cabin air, suit pressure, and solar weather — for a
+          crew member who needs help, not a wellness log.
         </p>
-        <Button asChild>
-          <Link href="/station">Open medical station</Link>
+        <Button asChild size="lg" className="h-12 px-6 text-base">
+          <Link href="/station">Open station</Link>
         </Button>
-        <div className="flex flex-wrap justify-center gap-3 text-xs text-muted-foreground">
-          <Link href="/api/mission" className="hover:text-foreground">
-            /api/mission
-          </Link>
-          <Link href="/api/crew/A02" className="hover:text-foreground">
-            /api/crew/A02
-          </Link>
-          <Link href="/api/environment" className="hover:text-foreground">
-            /api/environment
-          </Link>
-        </div>
       </div>
     </main>
   );
