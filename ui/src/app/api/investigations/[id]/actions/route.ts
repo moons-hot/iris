@@ -3,6 +3,7 @@ import {
   investigationReply,
   type Snapshot,
 } from "@/lib/iris";
+import { parseSentAt, recordCommsLog } from "@/lib/tiger";
 
 export const runtime = "nodejs";
 
@@ -18,7 +19,10 @@ Return concise markdown with these headings:
 Preserve citation IDs already in the context.
 Use the NASA Human Research Roadmap Risk 95 reference when relevant: https://humanresearchroadmap.nasa.gov/Risks/risk.aspx?i=95.`;
 
-function telemetryBlock(telemetry?: Snapshot, packet?: ReturnType<typeof buildTelemetryPacket>) {
+function telemetryBlock(
+  telemetry?: Snapshot,
+  packet?: ReturnType<typeof buildTelemetryPacket>,
+) {
   const lines = packet ?? (telemetry ? buildTelemetryPacket(telemetry) : undefined);
   if (!lines) return "Telemetry packet unavailable";
   return [
@@ -34,10 +38,12 @@ function telemetryBlock(telemetry?: Snapshot, packet?: ReturnType<typeof buildTe
 }
 
 export async function POST(request: Request) {
+  const receivedAt = new Date();
   const body = (await request.json()) as {
     message?: string;
     voiceAssessment?: string;
     telemetry?: Snapshot;
+    sentAt?: string;
   };
   if (!body.message?.trim()) {
     return Response.json(
@@ -45,6 +51,13 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+
+  const log = await recordCommsLog({
+    sentAt: parseSentAt(body.sentAt, receivedAt),
+    receivedAt,
+    channel: "typed",
+    summary: body.message.trim(),
+  });
 
   const fallback = investigationReply(
     body.message,
@@ -54,7 +67,7 @@ export async function POST(request: Request) {
   const packetText = telemetryBlock(body.telemetry, fallback.telemetry);
 
   if (!process.env.XAI_API_KEY) {
-    return Response.json({ ...fallback, source: "onboard-demo" });
+    return Response.json({ ...fallback, source: "onboard-demo", log });
   }
 
   try {
@@ -89,13 +102,14 @@ Preserve citation IDs already in the context. Keep possible concerns as investig
     };
     const text = result.choices?.[0]?.message?.content;
     if (!text) throw new Error("Empty Grok investigation reply");
-    return Response.json({ ...fallback, text, source: "grok" });
+    return Response.json({ ...fallback, text, source: "grok", log });
   } catch {
     return Response.json({
       ...fallback,
       source: "onboard-demo",
       modelWarning:
         "Grok unavailable; used seeded onboard investigation context.",
+      log,
     });
   }
 }

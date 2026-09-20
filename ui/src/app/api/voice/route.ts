@@ -5,6 +5,7 @@ import {
   GROK_VOICE_REALTIME_MODEL,
   transcribeWithGrokVoice,
 } from "@/lib/grok-voice";
+import { parseSentAt, recordCommsLog } from "@/lib/tiger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,15 +40,25 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const receivedAt = new Date();
   const form = await request.formData();
   const audio = form.get("audio");
   const suppliedTranscript = form.get("transcript");
+  const sentAt = parseSentAt(form.get("sentAt"), receivedAt);
 
   if (typeof suppliedTranscript === "string" && suppliedTranscript.trim()) {
+    const transcript = suppliedTranscript.trim();
+    const log = await recordCommsLog({
+      sentAt,
+      receivedAt,
+      channel: "voice",
+      summary: transcript,
+    });
     return Response.json({
-      transcript: suppliedTranscript.trim(),
+      transcript,
       voiceAssessment: assessVoice(suppliedTranscript),
       source: "supplied",
+      log,
     });
   }
   if (!(audio instanceof File)) {
@@ -58,11 +69,20 @@ export async function POST(request: Request) {
   }
 
   const result = await transcribeWithGrokVoice(audio);
+  const log = await recordCommsLog({
+    sentAt,
+    receivedAt,
+    channel: "voice",
+    summary:
+      result.transcript.trim() ||
+      `${audio.name || "audio"} (${audio.size} bytes)`,
+  });
   const status = result.source === "grok-voice" ? 200 : 202;
   return Response.json(
     {
       ...result,
       voiceAssessment: assessVoice(result.transcript),
+      log,
     },
     { status },
   );

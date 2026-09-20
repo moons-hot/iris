@@ -125,13 +125,14 @@ const specs: Record<
     sys: number;
     dia: number;
     temp: number;
-    strength: number;
-    nutrition: number;
+    spo2: number;
+    rr: number;
     co2: number;
     radiation: number;
     oxygen: number;
-    water: number;
-    flare: number;
+    suit: number;
+    pressure: number;
+    spe: number;
   }
 > = {
   nominal: {
@@ -139,39 +140,42 @@ const specs: Record<
     sys: 112,
     dia: 72,
     temp: 36.7,
-    strength: 96,
-    nutrition: 91,
+    spo2: 98,
+    rr: 14,
     co2: 0.62,
     radiation: 0.18,
     oxygen: 20.9,
-    water: 99.8,
-    flare: 0,
+    suit: 29.6,
+    pressure: 101.3,
+    spe: 0.4,
   },
   mild: {
     hr: 84,
     sys: 134,
     dia: 86,
     temp: 37.6,
-    strength: 79,
-    nutrition: 68,
+    spo2: 94,
+    rr: 22,
     co2: 0.78,
     radiation: 0.2,
     oxygen: 20.8,
-    water: 99.8,
-    flare: 0,
+    suit: 29.4,
+    pressure: 101.1,
+    spe: 0.5,
   },
   dire: {
     hr: 118,
     sys: 84,
     dia: 51,
     temp: 38.9,
-    strength: 41,
-    nutrition: 27,
+    spo2: 88,
+    rr: 28,
     co2: 0.84,
     radiation: 2.6,
     oxygen: 20.3,
-    water: 99.6,
-    flare: 4,
+    suit: 24.1,
+    pressure: 100.8,
+    spe: 18.2,
   },
 };
 
@@ -250,22 +254,43 @@ export function getSnapshot(): Snapshot {
   const sysHistory = sampleSeries(s.sys, 4.2 * jitter, 0);
   const diaHistory = sampleSeries(s.dia, 2.4 * jitter, 0, { phase: 3 });
   const tempHistory = sampleSeries(s.temp, 0.14 * jitter, 1);
-  const strengthHistory = sampleSeries(s.strength, 2.2 * jitter, 0);
-  const nutritionHistory = sampleSeries(s.nutrition, 2.6 * jitter, 0);
+  const spo2History = sampleSeries(s.spo2, 0.6 * jitter, 0, {
+    drift: scenario === "dire" ? -1.4 : scenario === "mild" ? -0.6 : 0,
+  });
+  const rrHistory = sampleSeries(s.rr, 1.1 * jitter, 0, {
+    drift: scenario === "nominal" ? 0 : 1.4,
+  });
   const oxygenHistory = sampleSeries(s.oxygen, 0.12, 1, {
     drift: scenario === "dire" ? -0.12 : 0,
   });
   const co2History = sampleSeries(s.co2, 0.05, 2, {
     drift: scenario === "nominal" ? 0.03 : 0.1,
   });
-  const waterHistory = sampleSeries(s.water, 0.1, 1);
-  const radiationHistory = sampleSeries(s.radiation, scenario === "dire" ? 0.16 : 0.07, 2, {
-    drift: scenario === "dire" ? 0.22 : 0.03,
+  const pressureHistory = sampleSeries(s.pressure, 0.08, 1, {
+    drift: scenario === "dire" ? -0.18 : 0,
   });
-  const flareHistory =
-    s.flare === 0
-      ? Array.from({ length: 15 }, () => 0)
-      : sampleSeries(s.flare, 0.45, 0, { drift: 1.2 });
+  const suitHistory = sampleSeries(s.suit, 0.08, 1, {
+    drift: scenario === "dire" ? -0.7 : 0,
+  });
+  const radiationHistory = sampleSeries(
+    s.radiation,
+    scenario === "dire" ? 0.16 : 0.07,
+    2,
+    {
+      drift: scenario === "dire" ? 0.22 : 0.03,
+    },
+  );
+  const flareHistory = Array.from({ length: 15 }, () =>
+    scenario === "dire" ? 1 : 0,
+  );
+  const speHistory = sampleSeries(
+    s.spe,
+    scenario === "dire" ? 0.8 : 0.05,
+    1,
+    {
+      drift: scenario === "dire" ? 1.4 : 0,
+    },
+  );
 
   const latestSys = sysHistory.at(-1) ?? s.sys;
   const latestDia = diaHistory.at(-1) ?? s.dia;
@@ -289,38 +314,47 @@ export function getSnapshot(): Snapshot {
         ),
       }),
       metric("Temperature", tempHistory, "°C", 36.7, 0.08, {
-        direction: scenario === "nominal" ? directionFrom(tempHistory, 0.08) : "up",
+        direction:
+          scenario === "nominal" ? directionFrom(tempHistory, 0.08) : "up",
       }),
-      metric("Strength", strengthHistory, "% baseline", 96, 1, {
-        direction: scenario === "nominal" ? directionFrom(strengthHistory, 1) : "down",
+      metric("SpO₂", spo2History, "%", 98, 0.6, {
+        direction:
+          scenario === "nominal" ? directionFrom(spo2History, 0.6) : "down",
       }),
-      metric("Nutrition", nutritionHistory, "% target", 90, 1, {
-        direction: scenario === "nominal" ? directionFrom(nutritionHistory, 1) : "down",
+      metric("Resp. rate", rrHistory, "/min", 14, 0.8, {
+        direction:
+          scenario === "nominal" ? directionFrom(rrHistory, 0.8) : "up",
       }),
     ],
     cabin: [
-      metric("Oxygen", oxygenHistory, "%", 20.9, 0.05, {
-        direction: scenario === "dire" ? "down" : directionFrom(oxygenHistory, 0.05),
+      metric("Cabin O₂", oxygenHistory, "%", 20.9, 0.05, {
+        direction:
+          scenario === "dire" ? "down" : directionFrom(oxygenHistory, 0.05),
       }),
-      metric("CO₂", co2History, "%", 0.61, 0.03, {
-        direction: scenario === "nominal" ? directionFrom(co2History, 0.03) : "up",
+      metric("Cabin CO₂", co2History, "%", 0.61, 0.03, {
+        direction:
+          scenario === "nominal" ? directionFrom(co2History, 0.03) : "up",
       }),
-      metric("Water purity", waterHistory, "%", 99.8, 0.08),
+      metric("Cabin pressure", pressureHistory, "kPa", 101.3, 0.05, {
+        direction:
+          scenario === "dire" ? "down" : directionFrom(pressureHistory, 0.05),
+      }),
+      metric("Suit pressure", suitHistory, "kPa", 29.6, 0.08, {
+        direction:
+          scenario === "dire" ? "down" : directionFrom(suitHistory, 0.08),
+      }),
     ],
     space: [
-      metric("Radiation", radiationHistory, "mSv/h", 0.18, 0.04, {
-        direction: scenario === "dire" ? "up" : directionFrom(radiationHistory, 0.04),
+      metric("Hull radiation", radiationHistory, "mSv/h", 0.18, 0.04, {
+        direction:
+          scenario === "dire" ? "up" : directionFrom(radiationHistory, 0.04),
       }),
-      metric(
-        "Solar flare",
-        flareHistory,
-        scenario === "dire" ? " active" : " clear",
-        0,
-        0.5,
-        {
-          direction: scenario === "dire" ? "up" : "stable",
-        },
-      ),
+      metric("Solar flare", flareHistory, scenario === "dire" ? "active" : "quiet", 0, 0.5, {
+        direction: scenario === "dire" ? "up" : "stable",
+      }),
+      metric("SPE flux", speHistory, "pfu", 0.4, 0.08, {
+        direction: scenario === "dire" ? "up" : directionFrom(speHistory, 0.08),
+      }),
     ],
     peers: [
       {
@@ -369,7 +403,10 @@ export function buildTelemetryPacket(snapshot: Snapshot) {
 export function findEvidence(query: string, snapshot?: Snapshot) {
   const normalized = query.toLowerCase();
   const categories = new Set<string>(["co2"]);
-  const radiation = snapshot?.space.find((metric) => metric.label === "Radiation");
+  const radiation = snapshot?.space.find(
+    (metric) =>
+      metric.label === "Hull radiation" || metric.label === "Radiation",
+  );
   const flare = snapshot?.space.find((metric) => metric.label === "Solar flare");
   if (
     /(radiation|flash|nausea|vomit|vision|light)/.test(normalized) ||
@@ -405,9 +442,14 @@ export function investigationReply(
   const temperature = snapshot.vitals.find(
     (metric) => metric.label === "Temperature",
   );
-  const oxygen = snapshot.cabin.find((metric) => metric.label === "Oxygen");
-  const co2 = snapshot.cabin.find((metric) => metric.label === "CO₂");
-  const radiation = snapshot.space.find((metric) => metric.label === "Radiation");
+  const oxygen = snapshot.cabin.find((metric) => metric.label === "Cabin O₂");
+  const co2 = snapshot.cabin.find((metric) => metric.label === "Cabin CO₂");
+  const spo2 = snapshot.vitals.find((metric) => metric.label === "SpO₂");
+  const rr = snapshot.vitals.find((metric) => metric.label === "Resp. rate");
+  const radiation = snapshot.space.find(
+    (metric) =>
+      metric.label === "Hull radiation" || metric.label === "Radiation",
+  );
   const flare = snapshot.space.find((metric) => metric.label === "Solar flare");
   if (!heartRate || !bloodPressure || !radiation) {
     throw new Error("Incomplete onboard telemetry snapshot");
@@ -416,21 +458,21 @@ export function investigationReply(
     ? voiceAssessment
     : "no additional voice cues";
   const observations = dire
-    ? `Voice report: "${input}". Voice signal: ${voice}. Astronaut: heart rate ${heartRate.value} bpm vs personal baseline 62, blood pressure ${bloodPressure.value}${bloodPressure.unit}, temperature ${temperature?.value ?? "elevated"} °C. Spacecraft: oxygen ${oxygen?.value ?? "n/a"}%, CO₂ ${co2?.value ?? "n/a"}%. Space environment: radiation ${radiation.value} mSv/h, solar flare ${flare?.value ?? 0}${flare?.unit ?? ""}.`
+    ? `Voice report: "${input}". Voice signal: ${voice}. Astronaut: heart rate ${heartRate.value} bpm vs personal baseline 62, blood pressure ${bloodPressure.value}${bloodPressure.unit}, temperature ${temperature?.value ?? "elevated"} °C, SpO₂ ${spo2?.value ?? "n/a"}%. Habitat: cabin O₂ ${oxygen?.value ?? "n/a"}%, cabin CO₂ ${co2?.value ?? "n/a"}%. Space weather: hull radiation ${radiation.value} mSv/h, solar flare ${flare?.unit ?? "active"}.`
     : mild
-      ? `Voice report: "${input}". Voice signal: ${voice}. Astronaut: heart rate ${heartRate.value} bpm vs personal baseline 62, blood pressure ${bloodPressure.value}${bloodPressure.unit}, temperature ${temperature?.value ?? "elevated"} °C. Strength and nutrition are below station targets. Spacecraft CO₂ is ${co2?.value ?? "elevated"}% versus 0.61%.`
-      : `Voice report: "${input}". Voice signal: ${voice}. Astronaut heart rate is ${heartRate.value} bpm against a personal resting baseline of 62 bpm. Cabin and space readings remain near the current mission baseline.`;
+      ? `Voice report: "${input}". Voice signal: ${voice}. Astronaut: heart rate ${heartRate.value} bpm vs personal baseline 62, blood pressure ${bloodPressure.value}${bloodPressure.unit}, temperature ${temperature?.value ?? "elevated"} °C, SpO₂ ${spo2?.value ?? "n/a"}%, respiratory rate ${rr?.value ?? "elevated"} /min. Cabin CO₂ is ${co2?.value ?? "elevated"}% versus 0.61%.`
+      : `Voice report: "${input}". Voice signal: ${voice}. Astronaut heart rate is ${heartRate.value} bpm against a personal resting baseline of 62 bpm. Cabin air and space weather remain near the current mission baseline.`;
   const possibleConcerns = dire
     ? [
-        "Acute radiation-related illness to investigate given rising dose rate, an active solar event, and reported visual or GI symptoms.",
+        "Acute radiation-related illness to investigate given rising hull dose rate, an active solar event, and reported visual or GI symptoms.",
         "Circulatory stress: tachycardia with falling blood pressure is a dangerous combination and needs immediate recheck.",
-        "Fever plus weakness and poor intake — infection, dehydration, and other explanations still remain open.",
+        "Fever plus falling SpO₂ — infection, dehydration, and other explanations still remain open.",
       ]
     : mild
       ? [
-          "Cabin-linked headache or breathlessness to investigate while CO₂ is above the mission baseline.",
-          "Physiological strain: pulse, blood pressure, and temperature are all up versus personal baseline.",
-          "Reduced strength and nutrition that may be worsening symptom tolerance.",
+          "Cabin-linked headache or breathlessness to investigate while cabin CO₂ is above the mission baseline.",
+          "Physiological strain: pulse, blood pressure, and temperature are up, while SpO₂ is down and breathing is faster.",
+          "Reduced oxygen-carrying comfort that may be worsening symptom tolerance.",
         ]
       : [
           "Symptom-only concern: the voice report matters even though current telemetry is close to personal baseline.",
@@ -444,7 +486,7 @@ export function investigationReply(
     : mild
       ? [
           "Sit supported, hydrate, and stop nonessential exertion.",
-          "Repeat pulse, blood pressure, and temperature after five quiet minutes.",
+          "Repeat pulse, blood pressure, temperature, and SpO₂ after five quiet minutes.",
           "Review cabin CO₂ scrubber status and report whether symptoms change with position.",
         ]
       : [
@@ -452,7 +494,7 @@ export function investigationReply(
           "Confirm hydration and last meal, then re-report if symptoms change.",
         ];
   const hypothesis = dire
-    ? "The voice report, astronaut telemetry, spacecraft cabin readings, and space-environment spike line up in time. That is a high-priority safety concern, not proof that radiation caused the symptoms."
+    ? "The voice report, astronaut telemetry, habitat readings, and space-weather spike line up in time. That is a high-priority safety concern, not proof that radiation caused the symptoms."
     : mild
       ? "Voice symptoms plus off-baseline vitals and elevated cabin CO₂ form a working investigation, not a diagnosis. Hydration, exertion, and cabin air are the first things to test."
       : "Telemetry does not yet show a material departure from personal baseline. Keep investigating the reported symptoms rather than dismissing them.";
@@ -467,7 +509,7 @@ export function investigationReply(
     speak: dire
       ? "I am flagging a high-priority concern. Move to shielding now, then we will repeat your blood pressure."
       : mild
-        ? "Your pulse, blood pressure, and temperature are above your personal baseline, and cabin CO2 is up. Sit, hydrate, and we will recheck."
+        ? "Your pulse, blood pressure, and temperature are above your personal baseline. SpO₂ is down, breathing is faster, and cabin CO2 is up. Sit, hydrate, and we will recheck."
         : "Your current measurements are close to your personal baseline. Let us repeat them after a short supported rest.",
     citations: evidence.map((item) => ({
       id: item.id,

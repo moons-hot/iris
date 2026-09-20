@@ -48,14 +48,47 @@ describe("Iris onboard context", () => {
     expect(reply.text).toContain("personal baseline");
   });
 
+  it("exposes hull radiation, solar flare, and SPE flux as space weather", () => {
+    const quiet = getSnapshot();
+    expect(quiet.space.map((metric) => metric.label)).toEqual([
+      "Hull radiation",
+      "Solar flare",
+      "SPE flux",
+    ]);
+    expect(quiet.space.find((metric) => metric.label === "Solar flare")?.unit).toBe(
+      "quiet",
+    );
+    setScenario("dire");
+    const storm = getSnapshot();
+    expect(storm.space.find((metric) => metric.label === "Solar flare")?.unit).toBe(
+      "active",
+    );
+    expect(
+      storm.cabin.find((metric) => metric.label === "Cabin pressure")?.unit,
+    ).toBe("kPa");
+    expect(storm.cabin.map((metric) => metric.label)).toEqual([
+      "Cabin O₂",
+      "Cabin CO₂",
+      "Cabin pressure",
+      "Suit pressure",
+    ]);
+    expect(storm.vitals.map((metric) => metric.label)).toEqual([
+      "Heart rate",
+      "Blood pressure",
+      "Temperature",
+      "SpO₂",
+      "Resp. rate",
+    ]);
+  });
+
   it("raises heart rate, blood pressure, and temperature in the mild preset", () => {
     setScenario("mild");
     const snapshot = getSnapshot();
     const hr = snapshot.vitals.find((metric) => metric.label === "Heart rate");
     const bp = snapshot.vitals.find((metric) => metric.label === "Blood pressure");
     const temp = snapshot.vitals.find((metric) => metric.label === "Temperature");
-    const strength = snapshot.vitals.find((metric) => metric.label === "Strength");
-    const nutrition = snapshot.vitals.find((metric) => metric.label === "Nutrition");
+    const spo2 = snapshot.vitals.find((metric) => metric.label === "SpO₂");
+    const rr = snapshot.vitals.find((metric) => metric.label === "Resp. rate");
 
     expect(hr?.value).toBeGreaterThan(74);
     expect(hr?.direction).toBe("up");
@@ -63,10 +96,10 @@ describe("Iris onboard context", () => {
     expect(bp?.direction).toBe("up");
     expect(temp?.value).toBeGreaterThan(37.2);
     expect(temp?.direction).toBe("up");
-    expect(strength?.value).toBeLessThan(86);
-    expect(strength?.direction).toBe("down");
-    expect(nutrition?.value).toBeLessThan(76);
-    expect(nutrition?.direction).toBe("down");
+    expect(spo2?.value).toBeLessThan(97);
+    expect(spo2?.direction).toBe("down");
+    expect(rr?.value).toBeGreaterThan(18);
+    expect(rr?.direction).toBe("up");
   });
 
   it("makes dire telemetry dangerous and elevates radiation plus solar flare", () => {
@@ -75,7 +108,7 @@ describe("Iris onboard context", () => {
     const hr = snapshot.vitals.find((metric) => metric.label === "Heart rate");
     const bp = snapshot.vitals.find((metric) => metric.label === "Blood pressure");
     const temp = snapshot.vitals.find((metric) => metric.label === "Temperature");
-    const radiation = snapshot.space.find((metric) => metric.label === "Radiation");
+    const radiation = snapshot.space.find((metric) => metric.label === "Hull radiation");
     const flare = snapshot.space.find((metric) => metric.label === "Solar flare");
 
     expect(hr?.value).toBeGreaterThan(105);
@@ -83,7 +116,7 @@ describe("Iris onboard context", () => {
     expect(temp?.value).toBeGreaterThan(38.2);
     expect(radiation?.value).toBeGreaterThan(2);
     expect(radiation?.direction).toBe("up");
-    expect(flare?.value).toBeGreaterThanOrEqual(3);
+    expect(flare?.value).toBeGreaterThanOrEqual(1);
     expect(flare?.direction).toBe("up");
   });
 
