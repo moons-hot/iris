@@ -1,6 +1,6 @@
 # Iris
 
-Onboard medical investigation for crews that are too far from Earth for real-time help.
+An autonomous medical investigation system for deep-space astronauts that combines live health data, spacecraft telemetry, and NASA research so crews can investigate symptoms before Earth can respond.
 
 When an astronaut reports a symptom, Iris compares it to that person's baseline, live ship telemetry, and NASA OSDR evidence. It does not diagnose. It says what may be related, what is still uncertain, and what to check next.
 
@@ -21,15 +21,15 @@ Grok Voice hears what they say and how they say it. An ESP32 is the physical mic
 
 ## Stack
 
-| Layer | What we used |
-| --- | --- |
-| App | Next.js, React, Tailwind, shadcn |
-| Investigation | Grok via Vercel AI SDK (`ai`, `@ai-sdk/xai`) |
-| Voice | Grok Voice transcribe + TTS, browser mic fallback |
-| Hardware | ESP32-S3, USB Web Serial |
-| Onboard data | SQLite (`better-sqlite3`), crew baselines + OSDR-style evidence |
-| Ground downlink | Tiger Data (Postgres), 20 min light-time delay |
-| Built in | Cursor, Origin, Grok Bot |
+| Layer           | What we used                                                    |
+| --------------- | --------------------------------------------------------------- |
+| App             | Next.js, React, Tailwind, shadcn                                |
+| Investigation   | Grok via Vercel AI SDK (`ai`, `@ai-sdk/xai`)                    |
+| Voice           | Grok Voice transcribe + TTS, browser mic fallback               |
+| Hardware        | ESP32-S3, USB Web Serial                                        |
+| Onboard data    | SQLite (`better-sqlite3`), crew baselines + OSDR-style evidence |
+| Ground downlink | Tiger Data (Postgres), 20 min light-time delay                  |
+| Built in        | Cursor, Origin, Grok Bot                                        |
 
 Without `XAI_API_KEY`, the station still runs on seeded onboard context.
 
