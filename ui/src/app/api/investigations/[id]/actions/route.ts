@@ -38,8 +38,8 @@ Exactly 4 or 5 complete sentences the crew hears on the speakers. Finish every s
 Hit these points, in order:
 1) Causal link: connect the reported symptoms to the most relevant environmental or telemetry signal (possible cause only — never a diagnosis).
 2) Prediction: what that pattern suggests next (monitor vs escalate).
-3) OSDR history: say you checked NASA OSDR historical cases for prior matching patterns, and whether they match this window.
-4) Action: if dire / flare, give one clear protective solution (e.g. move to shielding now). Otherwise one calm next check.
+3) Action: if dire / flare, give one clear protective solution (e.g. move to shielding now). Otherwise one calm next check.
+4) LAST SENTENCE (required): NASA OSDR historical analysis — say what prior OSDR / spaceflight cases tell you about these symptoms (match, partial match, or no strong match). This must be the final sentence.
 Calm tone. No markdown, no bullets, no citation IDs, no raw number dump.
 
 Preserve citation IDs in the non-speak sections only.

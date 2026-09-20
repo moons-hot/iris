@@ -46,6 +46,8 @@ db.exec(`
   );
 `);
 
+db.prepare("UPDATE crew SET name = ? WHERE id = ?").run("Mark Voss", "A01");
+
 const seeded = db.prepare("SELECT COUNT(*) as count FROM crew").get() as {
   count: number;
 };
@@ -54,7 +56,7 @@ if (seeded.count === 0) {
     "INSERT INTO crew VALUES (@id, @name, @hr, @sys, @dia, @temp)",
   ).run({
     id: "A01",
-    name: "Mara Voss",
+    name: "Mark Voss",
     hr: 62,
     sys: 112,
     dia: 72,
@@ -469,7 +471,7 @@ const VESSELS: VesselDef[] = [
     kind: "shuttle",
     callsign: "AST-1",
     destination: "Deep-space cruise",
-    astronaut: { id: "A01", name: "Mara Voss", missionDay: 184 },
+    astronaut: { id: "A01", name: "Mark Voss", missionDay: 184 },
     peers: [...ASTERIA_PEER_ROSTER],
     liveScenario: true,
     scenario: "nominal",
@@ -849,16 +851,16 @@ Using onboard OSDR/HRR extracts (${evidence.map((item) => item.id).join(", ")}):
 ## Speak aloud
 ${
   dire
-    ? "Your nausea and light flashes line up with the radiation and solar-flare rise, so those could be connected rather than random. That pattern predicts a high-priority risk window if exposure continues. I checked NASA OSDR historical cases, and prior crews logged similar co-timed GI and visual reports during SPE windows. Move to shielding now, notify the medical lead, and recheck blood pressure once you are shielded."
+    ? "Your nausea and light flashes line up with the radiation and solar-flare rise, so those could be connected rather than random. That pattern predicts a high-priority risk window if exposure continues. Move to shielding now, notify the medical lead, and recheck blood pressure once you are shielded. NASA OSDR historical cases show prior crews logged similar co-timed GI and visual symptoms during SPE windows, so history supports treating this as a real risk pattern."
     : mild
-      ? "Your headache and breathlessness can fit with cabin air pressure and your pulse running above your personal baseline. That pattern predicts a monitor-level watch, not an emergency, if we recheck after a quiet pause. I checked NASA OSDR and cabin history, and it only partly matches past nonspecific cabin-air cases. Sit supported, hydrate, and we will repeat the key vitals in five minutes."
-      : "I hear what you described, but ship and space readings are still near your personal baseline, so environment alone does not explain it yet. That predicts a symptom-first watch until something moves. I checked NASA OSDR history and nothing strongly matches this window. Sit supported, recheck pulse after five quiet minutes, and tell me if anything changes."
+      ? "Your headache and breathlessness can fit with cabin air pressure and your pulse running above your personal baseline. That pattern predicts a monitor-level watch, not an emergency, if we recheck after a quiet pause. Sit supported, hydrate, and we will repeat the key vitals in five minutes. NASA OSDR and cabin history only partly match past nonspecific cabin-air cases for these symptoms, so the historical signal is weak but worth watching."
+      : "I hear what you described, but ship and space readings are still near your personal baseline, so environment alone does not explain it yet. That predicts a symptom-first watch until something moves. Sit supported, recheck pulse after five quiet minutes, and tell me if anything changes. NASA OSDR history does not strongly match these symptoms in this window, so prior cases do not yet explain what you are feeling."
 }`,
     speak: dire
-      ? "Your nausea and light flashes line up with the radiation and solar-flare rise, so those could be connected rather than random. That pattern predicts a high-priority risk window if exposure continues. I checked NASA OSDR historical cases, and prior crews logged similar co-timed GI and visual reports during SPE windows. Move to shielding now, notify the medical lead, and recheck blood pressure once you are shielded."
+      ? "Your nausea and light flashes line up with the radiation and solar-flare rise, so those could be connected rather than random. That pattern predicts a high-priority risk window if exposure continues. Move to shielding now, notify the medical lead, and recheck blood pressure once you are shielded. NASA OSDR historical cases show prior crews logged similar co-timed GI and visual symptoms during SPE windows, so history supports treating this as a real risk pattern."
       : mild
-        ? "Your headache and breathlessness can fit with cabin air pressure and your pulse running above your personal baseline. That pattern predicts a monitor-level watch, not an emergency, if we recheck after a quiet pause. I checked NASA OSDR and cabin history, and it only partly matches past nonspecific cabin-air cases. Sit supported, hydrate, and we will repeat the key vitals in five minutes."
-        : "I hear what you described, but ship and space readings are still near your personal baseline, so environment alone does not explain it yet. That predicts a symptom-first watch until something moves. I checked NASA OSDR history and nothing strongly matches this window. Sit supported, recheck pulse after five quiet minutes, and tell me if anything changes.",
+        ? "Your headache and breathlessness can fit with cabin air pressure and your pulse running above your personal baseline. That pattern predicts a monitor-level watch, not an emergency, if we recheck after a quiet pause. Sit supported, hydrate, and we will repeat the key vitals in five minutes. NASA OSDR and cabin history only partly match past nonspecific cabin-air cases for these symptoms, so the historical signal is weak but worth watching."
+        : "I hear what you described, but ship and space readings are still near your personal baseline, so environment alone does not explain it yet. That predicts a symptom-first watch until something moves. Sit supported, recheck pulse after five quiet minutes, and tell me if anything changes. NASA OSDR history does not strongly match these symptoms in this window, so prior cases do not yet explain what you are feeling.",
     citations: evidence.map((item) => ({
       id: item.id,
       title: item.title,

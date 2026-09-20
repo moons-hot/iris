@@ -220,6 +220,11 @@ describe("Iris onboard context", () => {
     expect(reply.speak).toMatch(/OSDR/i);
     expect(reply.speak).toMatch(/shielding/i);
     expect(reply.speak).not.toMatch(/\d+\s*bpm/i);
-    expect(reply.speak.split(/[.!?]+/).filter((s) => s.trim()).length).toBeLessThanOrEqual(5);
+    const speakSentences = reply.speak
+      .split(/[.!?]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    expect(speakSentences.length).toBeLessThanOrEqual(5);
+    expect(speakSentences.at(-1)).toMatch(/OSDR|historical/i);
   });
 });
