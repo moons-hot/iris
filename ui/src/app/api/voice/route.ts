@@ -1,6 +1,8 @@
 import {
   grokVoiceConfigured,
+  grokVoiceInstructions,
   GROK_VOICE_MODEL,
+  GROK_VOICE_REALTIME_MODEL,
   transcribeWithGrokVoice,
 } from "@/lib/grok-voice";
 
@@ -31,6 +33,8 @@ export async function GET() {
   return Response.json({
     grokVoice: grokVoiceConfigured(),
     model: grokVoiceConfigured() ? GROK_VOICE_MODEL : null,
+    realtimeModel: grokVoiceConfigured() ? GROK_VOICE_REALTIME_MODEL : null,
+    instructions: grokVoiceInstructions(),
   });
 }
 
