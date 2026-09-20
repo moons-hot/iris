@@ -670,6 +670,18 @@ export default function StationPage() {
                             variant="secondary"
                             className={cn(
                                 "rounded-full",
+                                snapshot.scenario === "nominal" &&
+                                    "bg-foreground text-background hover:bg-foreground/90",
+                            )}
+                            onClick={() => void selectScenario("nominal")}
+                        >
+                            Default vitals
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="secondary"
+                            className={cn(
+                                "rounded-full",
                                 mild &&
                                     "bg-foreground text-background hover:bg-foreground/90",
                             )}
